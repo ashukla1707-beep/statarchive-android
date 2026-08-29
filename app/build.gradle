@@ -14,14 +14,21 @@ android {
         versionName '1.0.0'
     }
 
-   signingConfigs {
-    release {
-        storeFile file(System.getenv("KEYSTORE_FILE") ?: "../statarchive-release.jks")
-        storePassword System.getenv("KEYSTORE_PASSWORD")
-        keyAlias System.getenv("KEY_ALIAS") ?: "statarchive"
-        keyPassword System.getenv("KEY_PASSWORD")
+    signingConfigs {
+        release {
+            storeFile file(
+                System.getenv("KEYSTORE_FILE")
+                    ?: "../statarchive-release.jks"
+            )
+
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+
+            keyAlias System.getenv("KEY_ALIAS")
+                ?: "statarchive"
+
+            keyPassword System.getenv("KEY_PASSWORD")
+        }
     }
-}
 
     buildTypes {
         release {
@@ -32,5 +39,12 @@ android {
 }
 
 dependencies {
+
+    // Required temporarily because the existing manifest
+    // still contains Android Browser Helper/TWA components.
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.2'
+
+    // Required by MainActivity.java
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.activity:activity:1.10.1'
 }
