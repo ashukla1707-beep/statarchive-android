@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
@@ -22,29 +23,35 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.rgb(7, 10, 15));
+
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(7, 10, 15));
 
-        setContentView(webView);
-
-        /*
-         * Keep the website below Android's status bar
-         * and above the navigation / gesture bar.
-         */
-        ViewCompat.setOnApplyWindowInsetsListener(
+        root.addView(
                 webView,
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        );
+
+        setContentView(root);
+
+        ViewCompat.setOnApplyWindowInsetsListener(
+                root,
                 (view, windowInsets) -> {
 
-                    Insets systemBars =
-                            windowInsets.getInsets(
-                                    WindowInsetsCompat.Type.systemBars()
-                            );
+                    Insets bars = windowInsets.getInsets(
+                            WindowInsetsCompat.Type.systemBars()
+                    );
 
                     view.setPadding(
-                            systemBars.left,
-                            systemBars.top,
-                            systemBars.right,
-                            systemBars.bottom
+                            bars.left,
+                            bars.top,
+                            bars.right,
+                            bars.bottom
                     );
 
                     return windowInsets;
@@ -53,39 +60,24 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings settings = webView.getSettings();
 
-        // Website functionality
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
 
-        // Use the site's actual responsive mobile layout
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
 
-        // Normal mobile text scaling
         settings.setTextZoom(100);
 
-        // Prevent desktop-page shrinking
         webView.setInitialScale(0);
 
-        // Disable browser-style zoom controls
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
-        /*
-         * Keep Android WebView's normal mobile user-agent.
-         * Do not replace it with a desktop UA.
-         */
         settings.setUserAgentString(
                 settings.getUserAgentString()
         );
 
-        /*
-         * WebView client:
-         * - keeps navigation inside the app
-         * - marks the page as installed-app mode
-         *   so Offline Library becomes visible
-         */
         webView.setWebViewClient(
                 new WebViewClient() {
 
@@ -96,11 +88,6 @@ public class MainActivity extends AppCompatActivity {
                     ) {
                         super.onPageFinished(view, url);
 
-                        /*
-                         * Your website already uses this class
-                         * to show PWA-only features such as
-                         * Offline Library.
-                         */
                         view.evaluateJavascript(
                                 "document.documentElement.classList.add('stat-archive-pwa');",
                                 null
@@ -109,10 +96,6 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-        /*
-         * Android back button / gesture:
-         * first go back inside StatArchive.
-         */
         getOnBackPressedDispatcher().addCallback(
                 this,
                 new OnBackPressedCallback(true) {
@@ -138,11 +121,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
 
         if (webView != null) {
-
             webView.stopLoading();
-
             webView.destroy();
-
             webView = null;
         }
 
