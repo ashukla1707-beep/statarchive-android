@@ -1,6 +1,7 @@
 package com.statarchive.app;
 
 import android.annotation.SuppressLint;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -8,6 +9,9 @@ import android.webkit.WebViewClient;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -19,7 +23,31 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
+
+        webView.setBackgroundColor(Color.rgb(7, 10, 15));
+
         setContentView(webView);
+
+        /*
+         * IMPORTANT:
+         * Keep StatArchive below Android's status bar
+         * and above the navigation/gesture bar.
+         */
+        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+
+            Insets systemBars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars()
+            );
+
+            view.setPadding(
+                    systemBars.left,
+                    systemBars.top,
+                    systemBars.right,
+                    systemBars.bottom
+            );
+
+            return windowInsets;
+        });
 
         WebSettings settings = webView.getSettings();
 
@@ -27,61 +55,51 @@ public class MainActivity extends AppCompatActivity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
 
-        /*
-         * IMPORTANT FOR RESPONSIVE MOBILE LAYOUT
-         *
-         * Your website already contains:
-         * <meta name="viewport"
-         *       content="width=device-width, initial-scale=1.0">
-         *
-         * These settings allow WebView to respect that viewport
-         * instead of shrinking a desktop-width page.
-         */
+        /* Use StatArchive's real responsive mobile layout */
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
 
-        /* Keep normal Android/mobile scaling */
         settings.setTextZoom(100);
-        settings.setDefaultZoom(WebSettings.ZoomDensity.MEDIUM);
 
-        /* Do not scale the entire desktop page down */
+        /* Don't shrink the desktop layout */
         webView.setInitialScale(0);
 
-        /* Disable manual browser-style zoom controls */
+        /* Disable browser-style zoom controls */
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
         /*
-         * IMPORTANT:
-         * Do NOT replace the user agent with a desktop user agent.
-         * Android WebView's normal user agent already contains "Mobile".
+         * Keep Android WebView's normal mobile user-agent.
+         * Do not substitute a desktop UA.
          */
-        settings.setUserAgentString(settings.getUserAgentString());
+        settings.setUserAgentString(
+                settings.getUserAgentString()
+        );
 
         webView.setWebViewClient(new WebViewClient());
 
         /*
-         * Android Back button / gesture:
-         * go back inside StatArchive first.
+         * Android Back button / gesture
          */
         getOnBackPressedDispatcher().addCallback(
-            this,
-            new OnBackPressedCallback(true) {
-                @Override
-                public void handleOnBackPressed() {
+                this,
+                new OnBackPressedCallback(true) {
 
-                    if (webView.canGoBack()) {
-                        webView.goBack();
-                    } else {
-                        finish();
+                    @Override
+                    public void handleOnBackPressed() {
+
+                        if (webView.canGoBack()) {
+                            webView.goBack();
+                        } else {
+                            finish();
+                        }
                     }
                 }
-            }
         );
 
         webView.loadUrl(
-            "https://stat-archive.lustats.workers.dev/"
+                "https://stat-archive.lustats.workers.dev/"
         );
     }
 
@@ -89,8 +107,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
 
         if (webView != null) {
+
             webView.stopLoading();
+
             webView.destroy();
+
             webView = null;
         }
 
