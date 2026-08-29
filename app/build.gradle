@@ -14,14 +14,14 @@ android {
         versionName '1.0.0'
     }
 
-    signingConfigs {
-        release {
-            storeFile file('../statarchive-release.jks')
-            storePassword 'Dws#1zFUQXBSAV0CfcDYw%L@_6ru'
-            keyAlias 'statarchive'
-            keyPassword 'Dws#1zFUQXBSAV0CfcDYw%L@_6ru'
-        }
+   signingConfigs {
+    release {
+        storeFile file(System.getenv("KEYSTORE_FILE") ?: "../statarchive-release.jks")
+        storePassword System.getenv("KEYSTORE_PASSWORD")
+        keyAlias System.getenv("KEY_ALIAS") ?: "statarchive"
+        keyPassword System.getenv("KEY_PASSWORD")
     }
+}
 
     buildTypes {
         release {
