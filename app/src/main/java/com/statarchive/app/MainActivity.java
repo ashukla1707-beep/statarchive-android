@@ -124,8 +124,12 @@ public class MainActivity extends AppCompatActivity {
         webView.setInitialScale(0);
 
 
-        /* Disable browser-style zoom controls */
-
+        /*
+         * Disable browser-style WebView zoom.
+         *
+         * PDF pinch zoom is handled by preview.js,
+         * so we do not need Android WebView page zoom.
+         */
         settings.setSupportZoom(false);
 
         settings.setBuiltInZoomControls(false);
@@ -134,8 +138,8 @@ public class MainActivity extends AppCompatActivity {
 
 
         /*
-         * Keep the normal Android mobile
-         * WebView user agent.
+         * Keep the normal Android mobile WebView
+         * user agent.
          */
         settings.setUserAgentString(
                 settings.getUserAgentString()
@@ -145,7 +149,7 @@ public class MainActivity extends AppCompatActivity {
         /* =====================================================
            NATIVE ANDROID FILE BRIDGE
 
-           JavaScript will call:
+           JavaScript calls:
 
            AndroidBridge.openFile(...)
            AndroidBridge.shareFile(...)
@@ -164,7 +168,6 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(
                 new WebViewClient() {
 
-
                     /*
                      * Keep Stat Archive links inside the app.
                      *
@@ -176,9 +179,12 @@ public class MainActivity extends AppCompatActivity {
                             WebResourceRequest request
                     ) {
 
-                        Uri uri = request.getUrl();
+                        Uri uri =
+                                request.getUrl();
 
-                        String host = uri.getHost();
+                        String host =
+                                uri.getHost();
+
 
                         if (
                                 host != null &&
@@ -209,6 +215,16 @@ public class MainActivity extends AppCompatActivity {
                     }
 
 
+                    /*
+                     * Mark Android WebView as installed-app mode.
+                     *
+                     * IMPORTANT:
+                     * The Gaussian curve animation is now handled
+                     * entirely by hero-animation.js.
+                     *
+                     * Do not force stroke-dashoffset or animation
+                     * state from Android anymore.
+                     */
                     @Override
                     public void onPageFinished(
                             WebView view,
@@ -221,75 +237,10 @@ public class MainActivity extends AppCompatActivity {
                         );
 
 
-                        /*
-                         * 1. Mark WebView as installed-app mode
-                         *    so Offline Library is visible.
-                         *
-                         * 2. Give the normal graph animation time
-                         *    to run.
-                         *
-                         * 3. If Android WebView leaves it halfway,
-                         *    force the bell curve into its completed
-                         *    state.
-                         */
-
                         view.evaluateJavascript(
-
                                 "(function() {" +
-
-                                "document.documentElement" +
-                                ".classList.add(" +
-                                "'stat-archive-pwa'" +
-                                ");" +
-
-
-                                "function finishCurve() {" +
-
-                                "var c = document.querySelector(" +
-                                "'.gaussian-curve'" +
-                                ");" +
-
-                                "if (!c) return;" +
-
-                                "c.style.setProperty(" +
-                                "'animation'," +
-                                "'none'," +
-                                "'important'" +
-                                ");" +
-
-                                "c.style.setProperty(" +
-                                "'transition'," +
-                                "'none'," +
-                                "'important'" +
-                                ");" +
-
-                                "c.style.setProperty(" +
-                                "'stroke-dashoffset'," +
-                                "'0'," +
-                                "'important'" +
-                                ");" +
-
-                                "c.style.setProperty(" +
-                                "'opacity'," +
-                                "'1'," +
-                                "'important'" +
-                                ");" +
-
-                                "}" +
-
-
-                                "setTimeout(" +
-                                "finishCurve," +
-                                "3800" +
-                                ");" +
-
-                                "setTimeout(" +
-                                "finishCurve," +
-                                "5000" +
-                                ");" +
-
+                                "document.documentElement.classList.add('stat-archive-pwa');" +
                                 "})();",
-
                                 null
                         );
                     }
@@ -343,7 +294,11 @@ public class MainActivity extends AppCompatActivity {
 
 
         /*
-         * OPEN OFFLINE FILE
+         * OPEN FILE
+         *
+         * Used by:
+         * - Offline Library
+         * - Open PDF button in preview.js
          */
         @JavascriptInterface
         public void openFile(
@@ -361,6 +316,7 @@ public class MainActivity extends AppCompatActivity {
                                     base64Data,
                                     filename
                             );
+
 
                     Uri uri =
                             FileProvider.getUriForFile(
@@ -382,10 +338,12 @@ public class MainActivity extends AppCompatActivity {
                                     Intent.ACTION_VIEW
                             );
 
+
                     intent.setDataAndType(
                             uri,
                             mime
                     );
+
 
                     intent.addFlags(
                             Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -412,7 +370,7 @@ public class MainActivity extends AppCompatActivity {
 
                     Toast.makeText(
                             MainActivity.this,
-                            "Couldn't open the offline file.",
+                            "Couldn't open the file.",
                             Toast.LENGTH_LONG
                     ).show();
                 }
@@ -421,7 +379,9 @@ public class MainActivity extends AppCompatActivity {
 
 
         /*
-         * SHARE OFFLINE FILE
+         * SHARE FILE
+         *
+         * Used by Offline Library share.
          */
         @JavascriptInterface
         public void shareFile(
@@ -461,12 +421,17 @@ public class MainActivity extends AppCompatActivity {
                                     Intent.ACTION_SEND
                             );
 
-                    intent.setType(mime);
+
+                    intent.setType(
+                            mime
+                    );
+
 
                     intent.putExtra(
                             Intent.EXTRA_STREAM,
                             uri
                     );
+
 
                     intent.addFlags(
                             Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -480,14 +445,16 @@ public class MainActivity extends AppCompatActivity {
                             );
 
 
-                    startActivity(chooser);
+                    startActivity(
+                            chooser
+                    );
 
 
                 } catch (Exception e) {
 
                     Toast.makeText(
                             MainActivity.this,
-                            "Couldn't share the offline file.",
+                            "Couldn't share the file.",
                             Toast.LENGTH_LONG
                     ).show();
                 }
@@ -497,7 +464,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     /* =========================================================
-       WRITE OFFLINE BLOB TO TEMPORARY ANDROID FILE
+       WRITE BASE64 FILE TO TEMPORARY ANDROID CACHE
        ========================================================= */
 
     private File createSharedFile(
@@ -505,12 +472,6 @@ public class MainActivity extends AppCompatActivity {
             String filename
     ) throws IOException {
 
-
-        /*
-         * Prevent unsafe file names such as:
-         *
-         * ../../something
-         */
 
         String safeName =
                 sanitizeFilename(
@@ -555,7 +516,9 @@ public class MainActivity extends AppCompatActivity {
                         new FileOutputStream(file)
         ) {
 
-            output.write(bytes);
+            output.write(
+                    bytes
+            );
 
             output.flush();
         }
@@ -596,6 +559,14 @@ public class MainActivity extends AppCompatActivity {
                 );
 
 
+        /*
+         * Android viewers work more reliably when
+         * the file keeps its extension.
+         *
+         * The replacement above preserves dots except "..",
+         * so normal .pdf/.png/etc extensions remain intact.
+         */
+
         return clean;
     }
 
@@ -617,7 +588,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
 
-        return mimeType;
+        return mimeType.trim();
     }
 
 
@@ -636,10 +607,19 @@ public class MainActivity extends AppCompatActivity {
 
             webView.stopLoading();
 
+            webView.loadUrl(
+                    "about:blank"
+            );
+
+            webView.clearHistory();
+
+            webView.removeAllViews();
+
             webView.destroy();
 
             webView = null;
         }
+
 
         super.onDestroy();
     }
