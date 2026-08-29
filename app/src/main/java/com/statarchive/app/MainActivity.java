@@ -89,9 +89,24 @@ public class MainActivity extends AppCompatActivity {
                         super.onPageFinished(view, url);
 
                         view.evaluateJavascript(
-                                "document.documentElement.classList.add('stat-archive-pwa');",
-                                null
-                        );
+        "(function() {" +
+        "  document.documentElement.classList.add('stat-archive-pwa');" +
+
+        "  function finishStatArchiveCurve() {" +
+        "    var curve = document.querySelector('.gaussian-curve');" +
+        "    if (!curve) return;" +
+
+        "    curve.style.setProperty('animation', 'none', 'important');" +
+        "    curve.style.setProperty('transition', 'none', 'important');" +
+        "    curve.style.setProperty('stroke-dashoffset', '0', 'important');" +
+        "    curve.style.setProperty('opacity', '1', 'important');" +
+        "  }" +
+
+        "  setTimeout(finishStatArchiveCurve, 3800);" +
+        "  setTimeout(finishStatArchiveCurve, 5000);" +
+        "})();",
+        null
+);
                     }
                 }
         );
