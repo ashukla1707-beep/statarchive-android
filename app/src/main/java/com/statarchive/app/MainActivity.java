@@ -23,32 +23,54 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings settings = webView.getSettings();
 
-        // Required by StatArchive
+        /* Website functionality */
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
 
-        // IMPORTANT: use normal mobile responsive layout
+        /*
+         * IMPORTANT FOR RESPONSIVE MOBILE LAYOUT
+         *
+         * Your website already contains:
+         * <meta name="viewport"
+         *       content="width=device-width, initial-scale=1.0">
+         *
+         * These settings allow WebView to respect that viewport
+         * instead of shrinking a desktop-width page.
+         */
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
 
-        // Prevent Android WebView from behaving like a desktop browser
+        /* Keep normal Android/mobile scaling */
+        settings.setTextZoom(100);
+        settings.setDefaultZoom(WebSettings.ZoomDensity.MEDIUM);
+
+        /* Do not scale the entire desktop page down */
+        webView.setInitialScale(0);
+
+        /* Disable manual browser-style zoom controls */
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
-        // Normal mobile WebView user agent
-        String userAgent = settings.getUserAgentString();
-        userAgent = userAgent.replace("; wv", "");
-        settings.setUserAgentString(userAgent);
+        /*
+         * IMPORTANT:
+         * Do NOT replace the user agent with a desktop user agent.
+         * Android WebView's normal user agent already contains "Mobile".
+         */
+        settings.setUserAgentString(settings.getUserAgentString());
 
         webView.setWebViewClient(new WebViewClient());
 
-        // Handle Android back gesture/button inside the website
+        /*
+         * Android Back button / gesture:
+         * go back inside StatArchive first.
+         */
         getOnBackPressedDispatcher().addCallback(
             this,
             new OnBackPressedCallback(true) {
                 @Override
                 public void handleOnBackPressed() {
+
                     if (webView.canGoBack()) {
                         webView.goBack();
                     } else {
@@ -58,6 +80,20 @@ public class MainActivity extends AppCompatActivity {
             }
         );
 
-        webView.loadUrl("https://stat-archive.lustats.workers.dev/");
+        webView.loadUrl(
+            "https://stat-archive.lustats.workers.dev/"
+        );
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        if (webView != null) {
+            webView.stopLoading();
+            webView.destroy();
+            webView = null;
+        }
+
+        super.onDestroy();
     }
 }
