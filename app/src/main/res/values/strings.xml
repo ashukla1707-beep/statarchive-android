@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Stat Archive</string>
+    <string name="provider_authority">com.statarchive.app.fileprovider</string>
+    <string name="asset_statements">[{\"relation\":[\"delegate_permission/common.handle_all_urls\"],\"target\":{\"namespace\":\"web\",\"site\":\"https://stat-archive.lustats.workers.dev\"}}]</string>
+</resources>

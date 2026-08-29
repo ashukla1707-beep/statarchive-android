@@ -1,0 +1,36 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.statarchive.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.statarchive.app'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('../statarchive-release.jks')
+            storePassword 'Dws#1zFUQXBSAV0CfcDYw%L@_6ru'
+            keyAlias 'statarchive'
+            keyPassword 'Dws#1zFUQXBSAV0CfcDYw%L@_6ru'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.2'
+}
