@@ -23,64 +23,95 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
-
         webView.setBackgroundColor(Color.rgb(7, 10, 15));
 
         setContentView(webView);
 
         /*
-         * IMPORTANT:
-         * Keep StatArchive below Android's status bar
-         * and above the navigation/gesture bar.
+         * Keep the website below Android's status bar
+         * and above the navigation / gesture bar.
          */
-        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+        ViewCompat.setOnApplyWindowInsetsListener(
+                webView,
+                (view, windowInsets) -> {
 
-            Insets systemBars = windowInsets.getInsets(
-                    WindowInsetsCompat.Type.systemBars()
-            );
+                    Insets systemBars =
+                            windowInsets.getInsets(
+                                    WindowInsetsCompat.Type.systemBars()
+                            );
 
-            view.setPadding(
-                    systemBars.left,
-                    systemBars.top,
-                    systemBars.right,
-                    systemBars.bottom
-            );
+                    view.setPadding(
+                            systemBars.left,
+                            systemBars.top,
+                            systemBars.right,
+                            systemBars.bottom
+                    );
 
-            return windowInsets;
-        });
+                    return windowInsets;
+                }
+        );
 
         WebSettings settings = webView.getSettings();
 
-        /* Website functionality */
+        // Website functionality
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
 
-        /* Use StatArchive's real responsive mobile layout */
+        // Use the site's actual responsive mobile layout
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
 
+        // Normal mobile text scaling
         settings.setTextZoom(100);
 
-        /* Don't shrink the desktop layout */
+        // Prevent desktop-page shrinking
         webView.setInitialScale(0);
 
-        /* Disable browser-style zoom controls */
+        // Disable browser-style zoom controls
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
         /*
          * Keep Android WebView's normal mobile user-agent.
-         * Do not substitute a desktop UA.
+         * Do not replace it with a desktop UA.
          */
         settings.setUserAgentString(
                 settings.getUserAgentString()
         );
 
-        webView.setWebViewClient(new WebViewClient());
+        /*
+         * WebView client:
+         * - keeps navigation inside the app
+         * - marks the page as installed-app mode
+         *   so Offline Library becomes visible
+         */
+        webView.setWebViewClient(
+                new WebViewClient() {
+
+                    @Override
+                    public void onPageFinished(
+                            WebView view,
+                            String url
+                    ) {
+                        super.onPageFinished(view, url);
+
+                        /*
+                         * Your website already uses this class
+                         * to show PWA-only features such as
+                         * Offline Library.
+                         */
+                        view.evaluateJavascript(
+                                "document.documentElement.classList.add('stat-archive-pwa');",
+                                null
+                        );
+                    }
+                }
+        );
 
         /*
-         * Android Back button / gesture
+         * Android back button / gesture:
+         * first go back inside StatArchive.
          */
         getOnBackPressedDispatcher().addCallback(
                 this,
