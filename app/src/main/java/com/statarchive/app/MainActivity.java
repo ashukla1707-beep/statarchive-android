@@ -8,6 +8,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -16,6 +18,7 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
@@ -142,7 +145,8 @@ public class MainActivity extends AppCompatActivity {
         /*
          * Disable browser-style WebView zoom.
          *
-         * PDF pinch zoom is handled by preview.js.
+         * PDF pinch zoom is handled
+         * by preview.js.
          */
         settings.setSupportZoom(false);
 
@@ -184,8 +188,11 @@ public class MainActivity extends AppCompatActivity {
                 new WebViewClient() {
 
                     /*
-                     * Keep Stat Archive links inside app.
-                     * External links open through Android.
+                     * Keep Stat Archive links
+                     * inside the app.
+                     *
+                     * External links are handed
+                     * to Android.
                      */
                     @Override
                     public boolean shouldOverrideUrlLoading(
@@ -203,7 +210,9 @@ public class MainActivity extends AppCompatActivity {
                         if (
                                 host != null &&
                                 (
-                                        host.equals(SITE_HOST) ||
+                                        host.equals(
+                                                SITE_HOST
+                                        ) ||
                                         host.endsWith(
                                                 "." + SITE_HOST
                                         )
@@ -234,7 +243,10 @@ public class MainActivity extends AppCompatActivity {
 
                     /*
                      * Mark Android WebView as
-                     * installed PWA/app mode.
+                     * installed-app mode.
+                     *
+                     * Gaussian animation remains
+                     * controlled by website JS.
                      */
                     @Override
                     public void onPageFinished(
@@ -254,6 +266,83 @@ public class MainActivity extends AppCompatActivity {
                                 "})();",
                                 null
                         );
+                    }
+                }
+        );
+
+
+        /* =====================================================
+           JAVASCRIPT CONFIRM DIALOG
+
+           Needed for:
+           - Admin Delete Entry
+           - Any other website confirm(...)
+           ===================================================== */
+
+        webView.setWebChromeClient(
+                new WebChromeClient() {
+
+                    @Override
+                    public boolean onJsConfirm(
+                            WebView view,
+                            String url,
+                            String message,
+                            JsResult result
+                    ) {
+
+                        AlertDialog dialog =
+                                new AlertDialog.Builder(
+                                        MainActivity.this
+                                )
+                                        .setTitle(
+                                                "Stat Archive"
+                                        )
+
+                                        .setMessage(
+                                                message
+                                        )
+
+                                        .setPositiveButton(
+                                                "Delete",
+                                                (d, which) ->
+                                                        result.confirm()
+                                        )
+
+                                        .setNegativeButton(
+                                                "Cancel",
+                                                (d, which) ->
+                                                        result.cancel()
+                                        )
+
+                                        .setOnCancelListener(
+                                                d ->
+                                                        result.cancel()
+                                        )
+
+                                        .create();
+
+
+                        dialog.show();
+
+
+                        /*
+                         * Keep button capitalization
+                         * exactly as written.
+                         */
+                        dialog
+                                .getButton(
+                                        AlertDialog.BUTTON_POSITIVE
+                                )
+                                .setAllCaps(false);
+
+                        dialog
+                                .getButton(
+                                        AlertDialog.BUTTON_NEGATIVE
+                                )
+                                .setAllCaps(false);
+
+
+                        return true;
                     }
                 }
         );
@@ -335,7 +424,8 @@ public class MainActivity extends AppCompatActivity {
 
 
                                         /*
-                                         * Clean PDF preview state.
+                                         * Clean PDF preview state
+                                         * if Preview was closed.
                                          */
                                         "if (" +
                                         "ids[i] === 'previewOverlay'" +
@@ -380,11 +470,14 @@ public class MainActivity extends AppCompatActivity {
                                         value -> {
 
                                             /*
-                                             * JS true is returned as
-                                             * string "true".
+                                             * evaluateJavascript
+                                             * returns JS true as
+                                             * the String "true".
                                              */
                                             if (
-                                                    "true".equals(value)
+                                                    "true".equals(
+                                                            value
+                                                    )
                                             ) {
 
                                                 return;
@@ -869,7 +962,7 @@ public class MainActivity extends AppCompatActivity {
 
 
         /*
-         * Keep normal file extensions such as
+         * Keep normal extensions such as
          * .pdf, .png, .docx, etc.
          */
         return clean;
