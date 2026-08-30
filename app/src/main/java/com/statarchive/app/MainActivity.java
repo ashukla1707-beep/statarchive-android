@@ -3,11 +3,14 @@ package com.statarchive.app;
 import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.view.View;
 import android.webkit.JavascriptInterface;
@@ -38,6 +41,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -77,6 +87,27 @@ public class MainActivity extends AppCompatActivity {
     private static final int SAVE_FILE_REQUEST = 9001;
 
     private String pendingSaveBase64 = null;
+
+
+    /* =========================================================
+       SECURE SAVED PASSCODES
+
+       Four independent credential slots are stored:
+       - MSc + Contributor
+       - MSc + Admin
+       - BSc + Contributor
+       - BSc + Admin
+
+       Passwords are encrypted with an AES key that lives in
+       Android Keystore. SharedPreferences stores ciphertext only.
+       ========================================================= */
+
+    private static final String CREDENTIAL_PREFS =
+            "stat_archive_secure_credentials";
+
+    private static final String CREDENTIAL_KEY_ALIAS =
+            "stat_archive_passcode_key_v1";
+
 
 
     @SuppressLint({
@@ -1472,10 +1503,314 @@ public class MainActivity extends AppCompatActivity {
 
 
     /* =========================================================
+       SECURE CREDENTIAL HELPERS
+       ========================================================= */
+
+    private String credentialSlot(
+            String level,
+            String role
+    ) {
+
+        String normalizedLevel =
+                "bsc".equalsIgnoreCase(
+                        level == null
+                                ? ""
+                                : level.trim()
+                )
+                        ? "bsc"
+                        : "msc";
+
+        String normalizedRole =
+                "admin".equalsIgnoreCase(
+                        role == null
+                                ? ""
+                                : role.trim()
+                )
+                        ? "admin"
+                        : "contributor";
+
+        return normalizedLevel
+                + "_"
+                + normalizedRole;
+    }
+
+
+    private SecretKey getOrCreateCredentialKey()
+            throws Exception {
+
+        KeyStore keyStore =
+                KeyStore.getInstance(
+                        "AndroidKeyStore"
+                );
+
+        keyStore.load(null);
+
+        if (
+                keyStore.containsAlias(
+                        CREDENTIAL_KEY_ALIAS
+                )
+        ) {
+
+            java.security.Key existingKey =
+                    keyStore.getKey(
+                            CREDENTIAL_KEY_ALIAS,
+                            null
+                    );
+
+            if (
+                    existingKey instanceof SecretKey
+            ) {
+
+                return (SecretKey) existingKey;
+            }
+        }
+
+
+        KeyGenerator generator =
+                KeyGenerator.getInstance(
+                        KeyProperties.KEY_ALGORITHM_AES,
+                        "AndroidKeyStore"
+                );
+
+        KeyGenParameterSpec specification =
+                new KeyGenParameterSpec.Builder(
+                        CREDENTIAL_KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT |
+                                KeyProperties.PURPOSE_DECRYPT
+                )
+                        .setBlockModes(
+                                KeyProperties.BLOCK_MODE_GCM
+                        )
+                        .setEncryptionPaddings(
+                                KeyProperties.ENCRYPTION_PADDING_NONE
+                        )
+                        .setKeySize(
+                                256
+                        )
+                        .build();
+
+        generator.init(
+                specification
+        );
+
+        return generator.generateKey();
+    }
+
+
+    /* =========================================================
        ANDROID FILE BRIDGE
        ========================================================= */
 
     private class AndroidFileBridge {
+
+
+        /* =====================================================
+           SECURE PASSCODE STORAGE
+           ===================================================== */
+
+        @JavascriptInterface
+        public String getSavedPasscode(
+                String level,
+                String role
+        ) {
+
+            String slot =
+                    credentialSlot(
+                            level,
+                            role
+                    );
+
+            SharedPreferences prefs =
+                    getSharedPreferences(
+                            CREDENTIAL_PREFS,
+                            MODE_PRIVATE
+                    );
+
+            String ivBase64 =
+                    prefs.getString(
+                            slot + "_iv",
+                            null
+                    );
+
+            String encryptedBase64 =
+                    prefs.getString(
+                            slot + "_data",
+                            null
+                    );
+
+            if (
+                    ivBase64 == null ||
+                    encryptedBase64 == null
+            ) {
+
+                return "";
+            }
+
+
+            try {
+
+                SecretKey key =
+                        getOrCreateCredentialKey();
+
+                Cipher cipher =
+                        Cipher.getInstance(
+                                "AES/GCM/NoPadding"
+                        );
+
+                byte[] iv =
+                        Base64.decode(
+                                ivBase64,
+                                Base64.NO_WRAP
+                        );
+
+                byte[] encrypted =
+                        Base64.decode(
+                                encryptedBase64,
+                                Base64.NO_WRAP
+                        );
+
+                GCMParameterSpec spec =
+                        new GCMParameterSpec(
+                                128,
+                                iv
+                        );
+
+                cipher.init(
+                        Cipher.DECRYPT_MODE,
+                        key,
+                        spec
+                );
+
+                byte[] plain =
+                        cipher.doFinal(
+                                encrypted
+                        );
+
+                return new String(
+                        plain,
+                        StandardCharsets.UTF_8
+                );
+
+
+            } catch (Exception e) {
+
+                /*
+                 * If the Android Keystore key was invalidated
+                 * or the saved value became corrupt, remove only
+                 * this credential slot instead of crashing login.
+                 */
+                prefs.edit()
+                        .remove(slot + "_iv")
+                        .remove(slot + "_data")
+                        .apply();
+
+                return "";
+            }
+        }
+
+
+        @JavascriptInterface
+        public void savePasscode(
+                String level,
+                String role,
+                String passcode
+        ) {
+
+            if (
+                    passcode == null ||
+                    passcode.isEmpty()
+            ) {
+
+                return;
+            }
+
+
+            try {
+
+                String slot =
+                        credentialSlot(
+                                level,
+                                role
+                        );
+
+                SecretKey key =
+                        getOrCreateCredentialKey();
+
+                Cipher cipher =
+                        Cipher.getInstance(
+                                "AES/GCM/NoPadding"
+                        );
+
+                cipher.init(
+                        Cipher.ENCRYPT_MODE,
+                        key
+                );
+
+                byte[] encrypted =
+                        cipher.doFinal(
+                                passcode.getBytes(
+                                        StandardCharsets.UTF_8
+                                )
+                        );
+
+                byte[] iv =
+                        cipher.getIV();
+
+                SharedPreferences prefs =
+                        getSharedPreferences(
+                                CREDENTIAL_PREFS,
+                                MODE_PRIVATE
+                        );
+
+                prefs.edit()
+                        .putString(
+                                slot + "_iv",
+                                Base64.encodeToString(
+                                        iv,
+                                        Base64.NO_WRAP
+                                )
+                        )
+                        .putString(
+                                slot + "_data",
+                                Base64.encodeToString(
+                                        encrypted,
+                                        Base64.NO_WRAP
+                                )
+                        )
+                        .apply();
+
+
+            } catch (Exception ignored) {
+
+                /*
+                 * Saving a credential must never interrupt
+                 * a successful Stat Archive login.
+                 */
+            }
+        }
+
+
+        @JavascriptInterface
+        public void clearSavedPasscode(
+                String level,
+                String role
+        ) {
+
+            String slot =
+                    credentialSlot(
+                            level,
+                            role
+                    );
+
+            getSharedPreferences(
+                    CREDENTIAL_PREFS,
+                    MODE_PRIVATE
+            )
+                    .edit()
+                    .remove(slot + "_iv")
+                    .remove(slot + "_data")
+                    .apply();
+        }
 
 
         /* =====================================================
