@@ -2196,6 +2196,43 @@ public class MainActivity extends AppCompatActivity {
             Intent data
     ) {
 
+        /*
+         * Result from the HTML <input type="file"> chooser used by
+         * File a new entry / Edit entry inside the WebView.
+         */
+        if (
+                requestCode ==
+                        FILE_CHOOSER_REQUEST
+        ) {
+
+            if (
+                    filePathCallback != null
+            ) {
+
+                Uri[] results =
+                        WebChromeClient
+                                .FileChooserParams
+                                .parseResult(
+                                        resultCode,
+                                        data
+                                );
+
+
+                filePathCallback
+                        .onReceiveValue(
+                                results
+                        );
+
+
+                filePathCallback =
+                        null;
+            }
+
+
+            return;
+        }
+
+
         super.onActivityResult(
                 requestCode,
                 resultCode,
