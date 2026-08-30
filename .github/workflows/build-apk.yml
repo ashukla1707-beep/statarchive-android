@@ -1,4 +1,4 @@
-name: Build StatArchive APK
+name: Build StatArchive APK and AAB
 
 on:
   workflow_dispatch:
@@ -38,20 +38,27 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/statarchive-release.jks"
 
-      - name: Build signed release APK
+      - name: Build signed release APK and AAB
         env:
           KEYSTORE_FILE: ${{ github.workspace }}/statarchive-release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          gradle assembleRelease --stacktrace
+          gradle assembleRelease bundleRelease --stacktrace
 
       - name: Upload StatArchive APK
         uses: actions/upload-artifact@v4
         with:
           name: StatArchive-APK
           path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload StatArchive AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: StatArchive-AAB
+          path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
       - name: Delete temporary keystore
