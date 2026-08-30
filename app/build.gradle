@@ -8,44 +8,92 @@ android {
 
     defaultConfig {
         applicationId 'com.statarchive.app'
+
         minSdk 24
         targetSdk 36
-        versionCode 1
-        versionName '1.0.0'
+
+        /*
+         * IMPORTANT FOR APP UPDATES
+         *
+         * Increase versionCode for EVERY new APK:
+         *
+         * First APK   -> 1
+         * Next APK    -> 2
+         * Next APK    -> 3
+         * etc.
+         *
+         * Android uses this number to determine
+         * whether an APK is newer.
+         */
+        versionCode 2
+
+        /*
+         * Human-readable version shown to users.
+         */
+        versionName '1.1.0'
     }
 
+
+    /* =========================================================
+       RELEASE SIGNING
+
+       IMPORTANT:
+       Every future APK update MUST use this same keystore.
+       Otherwise Android will refuse to install it as an update.
+       ========================================================= */
+
     signingConfigs {
+
         release {
+
             storeFile file(
-                System.getenv("KEYSTORE_FILE")
-                    ?: "../statarchive-release.jks"
+                    System.getenv("KEYSTORE_FILE")
+                            ?: "../statarchive-release.jks"
             )
 
-            storePassword System.getenv("KEYSTORE_PASSWORD")
+            storePassword(
+                    System.getenv("KEYSTORE_PASSWORD")
+            )
 
-            keyAlias System.getenv("KEY_ALIAS")
-                ?: "statarchive"
+            keyAlias(
+                    System.getenv("KEY_ALIAS")
+                            ?: "statarchive"
+            )
 
-            keyPassword System.getenv("KEY_PASSWORD")
+            keyPassword(
+                    System.getenv("KEY_PASSWORD")
+            )
         }
     }
 
+
     buildTypes {
+
         release {
+
             minifyEnabled false
+
             signingConfig signingConfigs.release
         }
     }
 }
 
+
 dependencies {
 
-    // Required temporarily because the existing manifest
-    // still contains Android Browser Helper/TWA components.
+    /*
+     * Currently required because the manifest still
+     * contains Android Browser Helper / TWA components.
+     */
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.2'
 
-    // Required by MainActivity.java
+
+    /*
+     * Used by MainActivity.java.
+     */
     implementation 'androidx.appcompat:appcompat:1.7.1'
+
     implementation 'androidx.activity:activity:1.10.1'
-     implementation 'androidx.core:core:1.15.0'
+
+    implementation 'androidx.core:core:1.15.0'
 }
