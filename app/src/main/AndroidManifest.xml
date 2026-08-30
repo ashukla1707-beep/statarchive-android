@@ -1,7 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ======================================================
+         INTERNET
+
+         Required for:
+         - Stat Archive website
+         - Version checking
+         - Downloading future APK updates
+         ====================================================== -->
+
+    <uses-permission
+        android:name="android.permission.INTERNET" />
+
+
+    <!-- ======================================================
+         INSTALL APK UPDATE
+
+         Required so Stat Archive can hand a downloaded
+         update APK to Android's package installer.
+
+         Android will still require the user to approve
+         installation. The app cannot silently update itself.
+         ====================================================== -->
+
+    <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
 
     <application
         android:allowBackup="true"
@@ -10,16 +37,36 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.StatArchive">
 
+
+        <!-- ==================================================
+             MAIN ACTIVITY
+             ================================================== -->
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
 
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+
+                <action
+                    android:name="android.intent.action.MAIN" />
+
+                <category
+                    android:name="android.intent.category.LAUNCHER" />
+
             </intent-filter>
 
         </activity>
+
+
+        <!-- ==================================================
+             FILE PROVIDER
+
+             Used for:
+             - Opening downloaded PDFs
+             - Sharing files
+             - APK update installation
+             ================================================== -->
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -32,6 +79,7 @@
                 android:resource="@xml/filepaths" />
 
         </provider>
+
 
     </application>
 
