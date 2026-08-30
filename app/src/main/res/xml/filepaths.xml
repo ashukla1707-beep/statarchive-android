@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Files opened/shared from Stat Archive -->
     <cache-path
         name="shared_files"
         path="shared/" />
+
+    <!-- Downloaded APK used for app updates -->
+    <cache-path
+        name="app_updates"
+        path="updates/" />
 
 </paths>
