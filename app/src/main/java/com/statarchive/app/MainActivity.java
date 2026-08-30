@@ -247,13 +247,11 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-
-      /* =====================================================
+/* =====================================================
    ANDROID BACK BUTTON
 
-   Priority:
-   1. Close any open Stat Archive popup/modal
-   2. Go back in WebView history
+   1. Close visible popup/modal
+   2. Go back in WebView
    3. Exit app
    ===================================================== */
 
@@ -270,108 +268,78 @@ getOnBackPressedDispatcher()
                             return;
                         }
 
-                        webView.evaluateJavascript(
+                        final String js =
                                 "(function() {" +
+                                "try {" +
 
-                                "var closed = false;" +
+                                "var ids = [" +
+                                "'previewOverlay'," +
+                                "'offlineLibraryOverlay'," +
+                                "'editEntryOverlay'," +
+                                "'overlay'," +
+                                "'contributorDisclaimerOverlay'," +
+                                "'loginOverlay'" +
+                                "];" +
 
-                                /*
-                                 * PDF / image preview
-                                 */
-                                "var preview = document.getElementById('previewOverlay');" +
-                                "if (preview && getComputedStyle(preview).display !== 'none') {" +
-                                    "if (typeof closePreview === 'function') {" +
-                                        "closePreview();" +
-                                    "} else {" +
-                                        "preview.style.display = 'none';" +
+                                "for (var i = 0; i < ids.length; i++) {" +
+
+                                    "var el = document.getElementById(ids[i]);" +
+
+                                    "if (!el) continue;" +
+
+                                    "var style = window.getComputedStyle(el);" +
+
+                                    "if (" +
+                                        "style.display !== 'none' && " +
+                                        "style.visibility !== 'hidden'" +
+                                    ") {" +
+
+                                        "el.style.display = 'none';" +
+
                                         "document.body.classList.remove('no-scroll');" +
+
+                                        /*
+                                         * Clean PDF preview state if Preview
+                                         * was the popup being closed.
+                                         */
+                                        "if (ids[i] === 'previewOverlay') {" +
+                                            "var card = el.querySelector('.preview-card');" +
+                                            "if (card) {" +
+                                                "card.classList.remove('pdf-preview-active');" +
+                                            "}" +
+                                        "}" +
+
+                                        "return true;" +
                                     "}" +
-                                    "return true;" +
+
                                 "}" +
 
-                                /*
-                                 * Offline Library
-                                 */
-                                "var offline = document.getElementById('offlineLibraryOverlay');" +
-                                "if (offline && getComputedStyle(offline).display !== 'none') {" +
-                                    "if (typeof closeOfflineLibrary === 'function') {" +
-                                        "closeOfflineLibrary();" +
-                                    "} else {" +
-                                        "offline.style.display = 'none';" +
-                                        "document.body.classList.remove('no-scroll');" +
-                                    "}" +
-                                    "return true;" +
-                                "}" +
-
-                                /*
-                                 * Edit Entry
-                                 */
-                                "var edit = document.getElementById('editEntryOverlay');" +
-                                "if (edit && getComputedStyle(edit).display !== 'none') {" +
-                                    "if (typeof closeEditEntry === 'function') {" +
-                                        "closeEditEntry();" +
-                                    "} else {" +
-                                        "edit.style.display = 'none';" +
-                                        "document.body.classList.remove('no-scroll');" +
-                                    "}" +
-                                    "return true;" +
-                                "}" +
-
-                                /*
-                                 * Upload / Add Entry
-                                 */
-                                "var upload = document.getElementById('overlay');" +
-                                "if (upload && getComputedStyle(upload).display !== 'none') {" +
-                                    "if (typeof closeAndResetUploadForm === 'function') {" +
-                                        "closeAndResetUploadForm();" +
-                                    "} else {" +
-                                        "upload.style.display = 'none';" +
-                                        "document.body.classList.remove('no-scroll');" +
-                                    "}" +
-                                    "return true;" +
-                                "}" +
-
-                                /*
-                                 * Contributor disclaimer
-                                 */
-                                "var disclaimer = document.getElementById('contributorDisclaimerOverlay');" +
-                                "if (disclaimer && getComputedStyle(disclaimer).display !== 'none') {" +
-                                    "disclaimer.style.display = 'none';" +
-                                    "document.body.classList.remove('no-scroll');" +
-                                    "return true;" +
-                                "}" +
-
-                                /*
-                                 * Sign In
-                                 */
-                                "var login = document.getElementById('loginOverlay');" +
-                                "if (login && getComputedStyle(login).display !== 'none') {" +
-                                    "if (typeof clearLoginModalState === 'function') {" +
-                                        "clearLoginModalState();" +
-                                    "}" +
-                                    "login.style.display = 'none';" +
-                                    "document.body.classList.remove('no-scroll');" +
-                                    "return true;" +
-                                "}" +
-
-                                /*
-                                 * Nothing was open.
-                                 */
                                 "return false;" +
 
-                                "})();",
+                                "} catch (e) {" +
+                                    "return false;" +
+                                "}" +
 
+                                "})();";
+
+                        webView.evaluateJavascript(
+                                js,
                                 value -> {
 
-                                    boolean popupClosed =
-                                            "true".equals(value);
-
-                                    if (popupClosed) {
+                                    /*
+                                     * evaluateJavascript returns the
+                                     * JavaScript boolean as "true".
+                                     */
+                                    if ("true".equals(value)) {
                                         return;
                                     }
 
-                                    if (webView.canGoBack()) {
+                                    if (
+                                            webView != null &&
+                                            webView.canGoBack()
+                                    ) {
                                         webView.goBack();
+
                                     } else {
                                         finish();
                                     }
