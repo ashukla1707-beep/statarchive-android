@@ -25,12 +25,12 @@ android {
          * Android uses this number to determine
          * whether an APK is newer.
          */
-        versionCode 5
+        versionCode 6
 
         /*
          * Human-readable version shown to users.
          */
-        versionName '1.4.0'
+        versionName '1.4.1'
     }
 
 
