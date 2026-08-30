@@ -25,6 +25,8 @@ import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+
 
 public class MainActivity extends AppCompatActivity {
 
@@ -34,12 +36,22 @@ public class MainActivity extends AppCompatActivity {
             "stat-archive.lustats.workers.dev";
 
 
+    /* =========================================================
+       SAVE TO FILES
+       ========================================================= */
+
+    private static final int SAVE_FILE_REQUEST = 9001;
+
+    private String pendingSaveBase64 = null;
+
+
     @SuppressLint({
             "SetJavaScriptEnabled",
             "JavascriptInterface"
     })
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+
         super.onCreate(savedInstanceState);
 
 
@@ -47,7 +59,8 @@ public class MainActivity extends AppCompatActivity {
            ROOT CONTAINER
            ===================================================== */
 
-        FrameLayout root = new FrameLayout(this);
+        FrameLayout root =
+                new FrameLayout(this);
 
         root.setBackgroundColor(
                 Color.rgb(7, 10, 15)
@@ -58,7 +71,8 @@ public class MainActivity extends AppCompatActivity {
            WEBVIEW
            ===================================================== */
 
-        webView = new WebView(this);
+        webView =
+                new WebView(this);
 
         webView.setBackgroundColor(
                 Color.rgb(7, 10, 15)
@@ -111,9 +125,10 @@ public class MainActivity extends AppCompatActivity {
 
         settings.setDomStorageEnabled(true);
 
+
         /*
-         * Let the website use its real responsive
-         * phone layout.
+         * Let the website use its real
+         * responsive phone layout.
          */
         settings.setUseWideViewPort(true);
 
@@ -127,8 +142,7 @@ public class MainActivity extends AppCompatActivity {
         /*
          * Disable browser-style WebView zoom.
          *
-         * PDF pinch zoom is handled by preview.js,
-         * so we do not need Android WebView page zoom.
+         * PDF pinch zoom is handled by preview.js.
          */
         settings.setSupportZoom(false);
 
@@ -138,7 +152,7 @@ public class MainActivity extends AppCompatActivity {
 
 
         /*
-         * Keep the normal Android mobile WebView
+         * Keep normal Android WebView
          * user agent.
          */
         settings.setUserAgentString(
@@ -149,10 +163,11 @@ public class MainActivity extends AppCompatActivity {
         /* =====================================================
            NATIVE ANDROID FILE BRIDGE
 
-           JavaScript calls:
+           JavaScript can call:
 
            AndroidBridge.openFile(...)
            AndroidBridge.shareFile(...)
+           AndroidBridge.saveFile(...)
            ===================================================== */
 
         webView.addJavascriptInterface(
@@ -169,9 +184,8 @@ public class MainActivity extends AppCompatActivity {
                 new WebViewClient() {
 
                     /*
-                     * Keep Stat Archive links inside the app.
-                     *
-                     * External links are handed to Android.
+                     * Keep Stat Archive links inside app.
+                     * External links open through Android.
                      */
                     @Override
                     public boolean shouldOverrideUrlLoading(
@@ -190,7 +204,9 @@ public class MainActivity extends AppCompatActivity {
                                 host != null &&
                                 (
                                         host.equals(SITE_HOST) ||
-                                        host.endsWith("." + SITE_HOST)
+                                        host.endsWith(
+                                                "." + SITE_HOST
+                                        )
                                 )
                         ) {
 
@@ -211,19 +227,14 @@ public class MainActivity extends AppCompatActivity {
                         } catch (Exception ignored) {
                         }
 
+
                         return true;
                     }
 
 
                     /*
-                     * Mark Android WebView as installed-app mode.
-                     *
-                     * IMPORTANT:
-                     * The Gaussian curve animation is now handled
-                     * entirely by hero-animation.js.
-                     *
-                     * Do not force stroke-dashoffset or animation
-                     * state from Android anymore.
+                     * Mark Android WebView as
+                     * installed PWA/app mode.
                      */
                     @Override
                     public void onPageFinished(
@@ -247,107 +258,156 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-/* =====================================================
-   ANDROID BACK BUTTON
 
-   1. Close visible popup/modal
-   2. Go back in WebView
-   3. Exit app
-   ===================================================== */
+        /* =====================================================
+           ANDROID BACK BUTTON
 
-getOnBackPressedDispatcher()
-        .addCallback(
-                this,
-                new OnBackPressedCallback(true) {
+           1. Close visible popup/modal
+           2. Go back in WebView
+           3. Exit app
+           ===================================================== */
 
-                    @Override
-                    public void handleOnBackPressed() {
+        getOnBackPressedDispatcher()
+                .addCallback(
+                        this,
+                        new OnBackPressedCallback(true) {
 
-                        if (webView == null) {
-                            finish();
-                            return;
-                        }
+                            @Override
+                            public void handleOnBackPressed() {
 
-                        final String js =
-                                "(function() {" +
-                                "try {" +
+                                if (webView == null) {
 
-                                "var ids = [" +
-                                "'previewOverlay'," +
-                                "'offlineLibraryOverlay'," +
-                                "'editEntryOverlay'," +
-                                "'overlay'," +
-                                "'contributorDisclaimerOverlay'," +
-                                "'loginOverlay'" +
-                                "];" +
+                                    finish();
 
-                                "for (var i = 0; i < ids.length; i++) {" +
+                                    return;
+                                }
 
-                                    "var el = document.getElementById(ids[i]);" +
 
-                                    "if (!el) continue;" +
+                                final String js =
+                                        "(function() {" +
 
-                                    "var style = window.getComputedStyle(el);" +
+                                        "try {" +
 
-                                    "if (" +
+                                        "var ids = [" +
+
+                                        "'previewOverlay'," +
+                                        "'offlineLibraryOverlay'," +
+                                        "'editEntryOverlay'," +
+                                        "'overlay'," +
+                                        "'contributorDisclaimerOverlay'," +
+                                        "'loginOverlay'" +
+
+                                        "];" +
+
+
+                                        "for (" +
+                                        "var i = 0;" +
+                                        "i < ids.length;" +
+                                        "i++" +
+                                        ") {" +
+
+
+                                        "var el =" +
+                                        "document.getElementById(ids[i]);" +
+
+
+                                        "if (!el) continue;" +
+
+
+                                        "var style =" +
+                                        "window.getComputedStyle(el);" +
+
+
+                                        "if (" +
+
                                         "style.display !== 'none' && " +
                                         "style.visibility !== 'hidden'" +
-                                    ") {" +
+
+                                        ") {" +
+
 
                                         "el.style.display = 'none';" +
 
-                                        "document.body.classList.remove('no-scroll');" +
+
+                                        "document.body.classList.remove(" +
+                                        "'no-scroll'" +
+                                        ");" +
+
 
                                         /*
-                                         * Clean PDF preview state if Preview
-                                         * was the popup being closed.
+                                         * Clean PDF preview state.
                                          */
-                                        "if (ids[i] === 'previewOverlay') {" +
-                                            "var card = el.querySelector('.preview-card');" +
-                                            "if (card) {" +
-                                                "card.classList.remove('pdf-preview-active');" +
-                                            "}" +
+                                        "if (" +
+                                        "ids[i] === 'previewOverlay'" +
+                                        ") {" +
+
+                                        "var card =" +
+                                        "el.querySelector('.preview-card');" +
+
+                                        "if (card) {" +
+
+                                        "card.classList.remove(" +
+                                        "'pdf-preview-active'" +
+                                        ");" +
+
                                         "}" +
 
+                                        "}" +
+
+
                                         "return true;" +
-                                    "}" +
 
-                                "}" +
+                                        "}" +
 
-                                "return false;" +
+                                        "}" +
 
-                                "} catch (e) {" +
-                                    "return false;" +
-                                "}" +
 
-                                "})();";
+                                        "return false;" +
 
-                        webView.evaluateJavascript(
-                                js,
-                                value -> {
 
-                                    /*
-                                     * evaluateJavascript returns the
-                                     * JavaScript boolean as "true".
-                                     */
-                                    if ("true".equals(value)) {
-                                        return;
-                                    }
+                                        "} catch (e) {" +
 
-                                    if (
-                                            webView != null &&
-                                            webView.canGoBack()
-                                    ) {
-                                        webView.goBack();
+                                        "return false;" +
 
-                                    } else {
-                                        finish();
-                                    }
-                                }
-                        );
-                    }
-                }
-        );
+                                        "}" +
+
+
+                                        "})();";
+
+
+                                webView.evaluateJavascript(
+                                        js,
+                                        value -> {
+
+                                            /*
+                                             * JS true is returned as
+                                             * string "true".
+                                             */
+                                            if (
+                                                    "true".equals(value)
+                                            ) {
+
+                                                return;
+                                            }
+
+
+                                            if (
+                                                    webView != null &&
+                                                    webView.canGoBack()
+                                            ) {
+
+                                                webView.goBack();
+
+                                            } else {
+
+                                                finish();
+                                            }
+                                        }
+                                );
+                            }
+                        }
+                );
+
 
         /* =====================================================
            LOAD STAT ARCHIVE
@@ -366,13 +426,10 @@ getOnBackPressedDispatcher()
     private class AndroidFileBridge {
 
 
-        /*
-         * OPEN FILE
-         *
-         * Used by:
-         * - Offline Library
-         * - Open PDF button in preview.js
-         */
+        /* =====================================================
+           OPEN FILE
+           ===================================================== */
+
         @JavascriptInterface
         public void openFile(
                 String base64Data,
@@ -451,11 +508,10 @@ getOnBackPressedDispatcher()
         }
 
 
-        /*
-         * SHARE FILE
-         *
-         * Used by Offline Library share.
-         */
+        /* =====================================================
+           SHARE FILE
+           ===================================================== */
+
         @JavascriptInterface
         public void shareFile(
                 String base64Data,
@@ -533,6 +589,184 @@ getOnBackPressedDispatcher()
                 }
             });
         }
+
+
+        /* =====================================================
+           SAVE FILE TO ANDROID FILES
+
+           Opens Android's native Save As picker.
+           ===================================================== */
+
+        @JavascriptInterface
+        public void saveFile(
+                String base64Data,
+                String filename,
+                String mimeType
+        ) {
+
+            runOnUiThread(() -> {
+
+                try {
+
+                    pendingSaveBase64 =
+                            base64Data;
+
+
+                    String mime =
+                            normalizeMime(
+                                    mimeType
+                            );
+
+
+                    Intent intent =
+                            new Intent(
+                                    Intent.ACTION_CREATE_DOCUMENT
+                            );
+
+
+                    intent.addCategory(
+                            Intent.CATEGORY_OPENABLE
+                    );
+
+
+                    intent.setType(
+                            mime
+                    );
+
+
+                    intent.putExtra(
+                            Intent.EXTRA_TITLE,
+                            sanitizeFilename(
+                                    filename
+                            )
+                    );
+
+
+                    startActivityForResult(
+                            intent,
+                            SAVE_FILE_REQUEST
+                    );
+
+
+                } catch (Exception e) {
+
+                    pendingSaveBase64 =
+                            null;
+
+
+                    Toast.makeText(
+                            MainActivity.this,
+                            "Couldn't open the Android file picker.",
+                            Toast.LENGTH_LONG
+                    ).show();
+                }
+            });
+        }
+    }
+
+
+    /* =========================================================
+       RESULT FROM ANDROID SAVE-AS PICKER
+       ========================================================= */
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data
+    ) {
+
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+
+        if (
+                requestCode !=
+                SAVE_FILE_REQUEST
+        ) {
+
+            return;
+        }
+
+
+        /*
+         * User cancelled the picker.
+         */
+        if (
+                resultCode != RESULT_OK ||
+                data == null ||
+                data.getData() == null ||
+                pendingSaveBase64 == null
+        ) {
+
+            pendingSaveBase64 =
+                    null;
+
+            return;
+        }
+
+
+        Uri destinationUri =
+                data.getData();
+
+
+        try {
+
+            byte[] bytes =
+                    Base64.decode(
+                            pendingSaveBase64,
+                            Base64.DEFAULT
+                    );
+
+
+            try (
+                    OutputStream output =
+                            getContentResolver()
+                                    .openOutputStream(
+                                            destinationUri
+                                    )
+            ) {
+
+                if (output == null) {
+
+                    throw new IOException(
+                            "Could not open destination."
+                    );
+                }
+
+
+                output.write(
+                        bytes
+                );
+
+                output.flush();
+            }
+
+
+            Toast.makeText(
+                    this,
+                    "File saved successfully.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "Couldn't save the file.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+
+        } finally {
+
+            pendingSaveBase64 =
+                    null;
+        }
     }
 
 
@@ -586,7 +820,9 @@ getOnBackPressedDispatcher()
 
         try (
                 FileOutputStream output =
-                        new FileOutputStream(file)
+                        new FileOutputStream(
+                                file
+                        )
         ) {
 
             output.write(
@@ -633,13 +869,9 @@ getOnBackPressedDispatcher()
 
 
         /*
-         * Android viewers work more reliably when
-         * the file keeps its extension.
-         *
-         * The replacement above preserves dots except "..",
-         * so normal .pdf/.png/etc extensions remain intact.
+         * Keep normal file extensions such as
+         * .pdf, .png, .docx, etc.
          */
-
         return clean;
     }
 
@@ -672,6 +904,10 @@ getOnBackPressedDispatcher()
     @Override
     protected void onDestroy() {
 
+        pendingSaveBase64 =
+                null;
+
+
         if (webView != null) {
 
             webView.removeJavascriptInterface(
@@ -690,7 +926,8 @@ getOnBackPressedDispatcher()
 
             webView.destroy();
 
-            webView = null;
+            webView =
+                    null;
         }
 
 
