@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Base64;
+import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
 import android.webkit.WebChromeClient;
@@ -77,9 +78,30 @@ public class MainActivity extends AppCompatActivity {
         webView =
                 new WebView(this);
 
+
+        /*
+         * Enable Android Autofill / Password Manager
+         * for login fields inside the WebView.
+         *
+         * This allows supported services such as
+         * Google Password Manager, Samsung Pass,
+         * Bitwarden, etc. to offer saved credentials.
+         */
+        if (
+                android.os.Build.VERSION.SDK_INT >=
+                android.os.Build.VERSION_CODES.O
+        ) {
+
+            webView.setImportantForAutofill(
+                    View.IMPORTANT_FOR_AUTOFILL_YES
+            );
+        }
+
+
         webView.setBackgroundColor(
                 Color.rgb(7, 10, 15)
         );
+
 
         root.addView(
                 webView,
@@ -88,6 +110,7 @@ public class MainActivity extends AppCompatActivity {
                         FrameLayout.LayoutParams.MATCH_PARENT
                 )
         );
+
 
         setContentView(root);
 
@@ -105,12 +128,14 @@ public class MainActivity extends AppCompatActivity {
                                     WindowInsetsCompat.Type.systemBars()
                             );
 
+
                     view.setPadding(
                             bars.left,
                             bars.top,
                             bars.right,
                             bars.bottom
                     );
+
 
                     return windowInsets;
                 }
@@ -124,22 +149,39 @@ public class MainActivity extends AppCompatActivity {
         WebSettings settings =
                 webView.getSettings();
 
-        settings.setJavaScriptEnabled(true);
 
-        settings.setDomStorageEnabled(true);
+        settings.setJavaScriptEnabled(
+                true
+        );
+
+
+        settings.setDomStorageEnabled(
+                true
+        );
 
 
         /*
          * Let the website use its real
          * responsive phone layout.
          */
-        settings.setUseWideViewPort(true);
+        settings.setUseWideViewPort(
+                true
+        );
 
-        settings.setLoadWithOverviewMode(false);
 
-        settings.setTextZoom(100);
+        settings.setLoadWithOverviewMode(
+                false
+        );
 
-        webView.setInitialScale(0);
+
+        settings.setTextZoom(
+                100
+        );
+
+
+        webView.setInitialScale(
+                0
+        );
 
 
         /*
@@ -148,11 +190,19 @@ public class MainActivity extends AppCompatActivity {
          * PDF pinch zoom is handled
          * by preview.js.
          */
-        settings.setSupportZoom(false);
+        settings.setSupportZoom(
+                false
+        );
 
-        settings.setBuiltInZoomControls(false);
 
-        settings.setDisplayZoomControls(false);
+        settings.setBuiltInZoomControls(
+                false
+        );
+
+
+        settings.setDisplayZoomControls(
+                false
+        );
 
 
         /*
@@ -203,6 +253,7 @@ public class MainActivity extends AppCompatActivity {
                         Uri uri =
                                 request.getUrl();
 
+
                         String host =
                                 uri.getHost();
 
@@ -231,9 +282,15 @@ public class MainActivity extends AppCompatActivity {
                                             uri
                                     );
 
-                            startActivity(intent);
 
-                        } catch (Exception ignored) {
+                            startActivity(
+                                    intent
+                            );
+
+
+                        } catch (
+                                Exception ignored
+                        ) {
                         }
 
 
@@ -244,9 +301,6 @@ public class MainActivity extends AppCompatActivity {
                     /*
                      * Mark Android WebView as
                      * installed-app mode.
-                     *
-                     * Gaussian animation remains
-                     * controlled by website JS.
                      */
                     @Override
                     public void onPageFinished(
@@ -276,6 +330,7 @@ public class MainActivity extends AppCompatActivity {
 
            Needed for:
            - Admin Delete Entry
+           - Contributor Delete Entry
            - Any other website confirm(...)
            ===================================================== */
 
@@ -294,6 +349,7 @@ public class MainActivity extends AppCompatActivity {
                                 new AlertDialog.Builder(
                                         MainActivity.this
                                 )
+
                                         .setTitle(
                                                 "Stat Archive"
                                         )
@@ -325,21 +381,22 @@ public class MainActivity extends AppCompatActivity {
                         dialog.show();
 
 
-                        /*
-                         * Keep button capitalization
-                         * exactly as written.
-                         */
                         dialog
                                 .getButton(
                                         AlertDialog.BUTTON_POSITIVE
                                 )
-                                .setAllCaps(false);
+                                .setAllCaps(
+                                        false
+                                );
+
 
                         dialog
                                 .getButton(
                                         AlertDialog.BUTTON_NEGATIVE
                                 )
-                                .setAllCaps(false);
+                                .setAllCaps(
+                                        false
+                                );
 
 
                         return true;
@@ -359,12 +416,16 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher()
                 .addCallback(
                         this,
-                        new OnBackPressedCallback(true) {
+                        new OnBackPressedCallback(
+                                true
+                        ) {
 
                             @Override
                             public void handleOnBackPressed() {
 
-                                if (webView == null) {
+                                if (
+                                        webView == null
+                                ) {
 
                                     finish();
 
@@ -469,11 +530,6 @@ public class MainActivity extends AppCompatActivity {
                                         js,
                                         value -> {
 
-                                            /*
-                                             * evaluateJavascript
-                                             * returns JS true as
-                                             * the String "true".
-                                             */
                                             if (
                                                     "true".equals(
                                                             value
@@ -530,74 +586,81 @@ public class MainActivity extends AppCompatActivity {
                 String mimeType
         ) {
 
-            runOnUiThread(() -> {
+            runOnUiThread(
+                    () -> {
 
-                try {
+                        try {
 
-                    File file =
-                            createSharedFile(
-                                    base64Data,
-                                    filename
+                            File file =
+                                    createSharedFile(
+                                            base64Data,
+                                            filename
+                                    );
+
+
+                            Uri uri =
+                                    FileProvider.getUriForFile(
+                                            MainActivity.this,
+                                            getPackageName()
+                                                    + ".fileprovider",
+                                            file
+                                    );
+
+
+                            String mime =
+                                    normalizeMime(
+                                            mimeType
+                                    );
+
+
+                            Intent intent =
+                                    new Intent(
+                                            Intent.ACTION_VIEW
+                                    );
+
+
+                            intent.setDataAndType(
+                                    uri,
+                                    mime
                             );
 
 
-                    Uri uri =
-                            FileProvider.getUriForFile(
+                            intent.addFlags(
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            );
+
+
+                            try {
+
+                                startActivity(
+                                        intent
+                                );
+
+
+                            } catch (
+                                    ActivityNotFoundException e
+                            ) {
+
+                                Toast.makeText(
+                                        MainActivity.this,
+                                        "No app is available to open this file.",
+                                        Toast.LENGTH_LONG
+                                ).show();
+                            }
+
+
+                        } catch (
+                                Exception e
+                        ) {
+
+                            Toast.makeText(
                                     MainActivity.this,
-                                    getPackageName()
-                                            + ".fileprovider",
-                                    file
-                            );
-
-
-                    String mime =
-                            normalizeMime(
-                                    mimeType
-                            );
-
-
-                    Intent intent =
-                            new Intent(
-                                    Intent.ACTION_VIEW
-                            );
-
-
-                    intent.setDataAndType(
-                            uri,
-                            mime
-                    );
-
-
-                    intent.addFlags(
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    );
-
-
-                    try {
-
-                        startActivity(intent);
-
-                    } catch (
-                            ActivityNotFoundException e
-                    ) {
-
-                        Toast.makeText(
-                                MainActivity.this,
-                                "No app is available to open this file.",
-                                Toast.LENGTH_LONG
-                        ).show();
+                                    "Couldn't open the file.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
                     }
-
-
-                } catch (Exception e) {
-
-                    Toast.makeText(
-                            MainActivity.this,
-                            "Couldn't open the file.",
-                            Toast.LENGTH_LONG
-                    ).show();
-                }
-            });
+            );
         }
 
 
@@ -612,75 +675,79 @@ public class MainActivity extends AppCompatActivity {
                 String mimeType
         ) {
 
-            runOnUiThread(() -> {
+            runOnUiThread(
+                    () -> {
 
-                try {
+                        try {
 
-                    File file =
-                            createSharedFile(
-                                    base64Data,
-                                    filename
+                            File file =
+                                    createSharedFile(
+                                            base64Data,
+                                            filename
+                                    );
+
+
+                            Uri uri =
+                                    FileProvider.getUriForFile(
+                                            MainActivity.this,
+                                            getPackageName()
+                                                    + ".fileprovider",
+                                            file
+                                    );
+
+
+                            String mime =
+                                    normalizeMime(
+                                            mimeType
+                                    );
+
+
+                            Intent intent =
+                                    new Intent(
+                                            Intent.ACTION_SEND
+                                    );
+
+
+                            intent.setType(
+                                    mime
                             );
 
 
-                    Uri uri =
-                            FileProvider.getUriForFile(
+                            intent.putExtra(
+                                    Intent.EXTRA_STREAM,
+                                    uri
+                            );
+
+
+                            intent.addFlags(
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            );
+
+
+                            Intent chooser =
+                                    Intent.createChooser(
+                                            intent,
+                                            "Share file"
+                                    );
+
+
+                            startActivity(
+                                    chooser
+                            );
+
+
+                        } catch (
+                                Exception e
+                        ) {
+
+                            Toast.makeText(
                                     MainActivity.this,
-                                    getPackageName()
-                                            + ".fileprovider",
-                                    file
-                            );
-
-
-                    String mime =
-                            normalizeMime(
-                                    mimeType
-                            );
-
-
-                    Intent intent =
-                            new Intent(
-                                    Intent.ACTION_SEND
-                            );
-
-
-                    intent.setType(
-                            mime
-                    );
-
-
-                    intent.putExtra(
-                            Intent.EXTRA_STREAM,
-                            uri
-                    );
-
-
-                    intent.addFlags(
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    );
-
-
-                    Intent chooser =
-                            Intent.createChooser(
-                                    intent,
-                                    "Share file"
-                            );
-
-
-                    startActivity(
-                            chooser
-                    );
-
-
-                } catch (Exception e) {
-
-                    Toast.makeText(
-                            MainActivity.this,
-                            "Couldn't share the file.",
-                            Toast.LENGTH_LONG
-                    ).show();
-                }
-            });
+                                    "Couldn't share the file.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
+                    }
+            );
         }
 
 
@@ -697,63 +764,67 @@ public class MainActivity extends AppCompatActivity {
                 String mimeType
         ) {
 
-            runOnUiThread(() -> {
+            runOnUiThread(
+                    () -> {
 
-                try {
+                        try {
 
-                    pendingSaveBase64 =
-                            base64Data;
+                            pendingSaveBase64 =
+                                    base64Data;
 
 
-                    String mime =
-                            normalizeMime(
-                                    mimeType
+                            String mime =
+                                    normalizeMime(
+                                            mimeType
+                                    );
+
+
+                            Intent intent =
+                                    new Intent(
+                                            Intent.ACTION_CREATE_DOCUMENT
+                                    );
+
+
+                            intent.addCategory(
+                                    Intent.CATEGORY_OPENABLE
                             );
 
 
-                    Intent intent =
-                            new Intent(
-                                    Intent.ACTION_CREATE_DOCUMENT
+                            intent.setType(
+                                    mime
                             );
 
 
-                    intent.addCategory(
-                            Intent.CATEGORY_OPENABLE
-                    );
+                            intent.putExtra(
+                                    Intent.EXTRA_TITLE,
+                                    sanitizeFilename(
+                                            filename
+                                    )
+                            );
 
 
-                    intent.setType(
-                            mime
-                    );
+                            startActivityForResult(
+                                    intent,
+                                    SAVE_FILE_REQUEST
+                            );
 
 
-                    intent.putExtra(
-                            Intent.EXTRA_TITLE,
-                            sanitizeFilename(
-                                    filename
-                            )
-                    );
+                        } catch (
+                                Exception e
+                        ) {
+
+                            pendingSaveBase64 =
+                                    null;
 
 
-                    startActivityForResult(
-                            intent,
-                            SAVE_FILE_REQUEST
-                    );
-
-
-                } catch (Exception e) {
-
-                    pendingSaveBase64 =
-                            null;
-
-
-                    Toast.makeText(
-                            MainActivity.this,
-                            "Couldn't open the Android file picker.",
-                            Toast.LENGTH_LONG
-                    ).show();
-                }
-            });
+                            Toast.makeText(
+                                    MainActivity.this,
+                                    "Couldn't open the Android file picker.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
+                    }
+            );
         }
     }
 
@@ -785,9 +856,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
 
-        /*
-         * User cancelled the picker.
-         */
         if (
                 resultCode != RESULT_OK ||
                 data == null ||
@@ -797,6 +865,7 @@ public class MainActivity extends AppCompatActivity {
 
             pendingSaveBase64 =
                     null;
+
 
             return;
         }
@@ -823,7 +892,9 @@ public class MainActivity extends AppCompatActivity {
                                     )
             ) {
 
-                if (output == null) {
+                if (
+                        output == null
+                ) {
 
                     throw new IOException(
                             "Could not open destination."
@@ -834,6 +905,7 @@ public class MainActivity extends AppCompatActivity {
                 output.write(
                         bytes
                 );
+
 
                 output.flush();
             }
@@ -846,7 +918,9 @@ public class MainActivity extends AppCompatActivity {
             ).show();
 
 
-        } catch (Exception e) {
+        } catch (
+                Exception e
+        ) {
 
             Toast.makeText(
                     this,
@@ -922,6 +996,7 @@ public class MainActivity extends AppCompatActivity {
                     bytes
             );
 
+
             output.flush();
         }
 
@@ -961,10 +1036,6 @@ public class MainActivity extends AppCompatActivity {
                 );
 
 
-        /*
-         * Keep normal extensions such as
-         * .pdf, .png, .docx, etc.
-         */
         return clean;
     }
 
@@ -1001,23 +1072,31 @@ public class MainActivity extends AppCompatActivity {
                 null;
 
 
-        if (webView != null) {
+        if (
+                webView != null
+        ) {
 
             webView.removeJavascriptInterface(
                     "AndroidBridge"
             );
 
+
             webView.stopLoading();
+
 
             webView.loadUrl(
                     "about:blank"
             );
 
+
             webView.clearHistory();
+
 
             webView.removeAllViews();
 
+
             webView.destroy();
+
 
             webView =
                     null;
