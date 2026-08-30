@@ -5,7 +5,9 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.Base64;
 import android.view.View;
 import android.webkit.JavascriptInterface;
@@ -26,18 +28,46 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import org.json.JSONObject;
+
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
 
+
+    /* =========================================================
+       STAT ARCHIVE WEBSITE
+       ========================================================= */
+
     private static final String SITE_HOST =
             "stat-archive.lustats.workers.dev";
+
+
+    /* =========================================================
+       APP UPDATE SYSTEM
+
+       version.json must be available at:
+
+       https://stat-archive.lustats.workers.dev/version.json
+       ========================================================= */
+
+    private static final String UPDATE_INFO_URL =
+            "https://stat-archive.lustats.workers.dev/version.json";
+
+
+    private boolean updateDialogShown = false;
+
+    private File pendingUpdateApk = null;
 
 
     /* =========================================================
@@ -79,17 +109,13 @@ public class MainActivity extends AppCompatActivity {
                 new WebView(this);
 
 
-        /*
-         * Enable Android Autofill / Password Manager
-         * for login fields inside the WebView.
-         *
-         * This allows supported services such as
-         * Google Password Manager, Samsung Pass,
-         * Bitwarden, etc. to offer saved credentials.
-         */
+        /* =====================================================
+           ANDROID AUTOFILL / PASSWORD MANAGER
+           ===================================================== */
+
         if (
-                android.os.Build.VERSION.SDK_INT >=
-                android.os.Build.VERSION_CODES.O
+                Build.VERSION.SDK_INT >=
+                        Build.VERSION_CODES.O
         ) {
 
             webView.setImportantForAutofill(
@@ -160,10 +186,6 @@ public class MainActivity extends AppCompatActivity {
         );
 
 
-        /*
-         * Let the website use its real
-         * responsive phone layout.
-         */
         settings.setUseWideViewPort(
                 true
         );
@@ -185,10 +207,10 @@ public class MainActivity extends AppCompatActivity {
 
 
         /*
-         * Disable browser-style WebView zoom.
+         * Disable normal WebView zoom.
          *
          * PDF pinch zoom is handled
-         * by preview.js.
+         * by the website.
          */
         settings.setSupportZoom(
                 false
@@ -205,10 +227,6 @@ public class MainActivity extends AppCompatActivity {
         );
 
 
-        /*
-         * Keep normal Android WebView
-         * user agent.
-         */
         settings.setUserAgentString(
                 settings.getUserAgentString()
         );
@@ -237,13 +255,6 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(
                 new WebViewClient() {
 
-                    /*
-                     * Keep Stat Archive links
-                     * inside the app.
-                     *
-                     * External links are handed
-                     * to Android.
-                     */
                     @Override
                     public boolean shouldOverrideUrlLoading(
                             WebView view,
@@ -258,6 +269,10 @@ public class MainActivity extends AppCompatActivity {
                                 uri.getHost();
 
 
+                        /*
+                         * Keep Stat Archive itself
+                         * inside the app.
+                         */
                         if (
                                 host != null &&
                                 (
@@ -274,6 +289,10 @@ public class MainActivity extends AppCompatActivity {
                         }
 
 
+                        /*
+                         * Open external links
+                         * using Android.
+                         */
                         try {
 
                             Intent intent =
@@ -298,10 +317,6 @@ public class MainActivity extends AppCompatActivity {
                     }
 
 
-                    /*
-                     * Mark Android WebView as
-                     * installed-app mode.
-                     */
                     @Override
                     public void onPageFinished(
                             WebView view,
@@ -314,6 +329,10 @@ public class MainActivity extends AppCompatActivity {
                         );
 
 
+                        /*
+                         * Tell website that this
+                         * is the installed app.
+                         */
                         view.evaluateJavascript(
                                 "(function() {" +
                                 "document.documentElement.classList.add('stat-archive-pwa');" +
@@ -328,10 +347,7 @@ public class MainActivity extends AppCompatActivity {
         /* =====================================================
            JAVASCRIPT CONFIRM DIALOG
 
-           Needed for:
-           - Admin Delete Entry
-           - Contributor Delete Entry
-           - Any other website confirm(...)
+           Required for Admin / Contributor Delete.
            ===================================================== */
 
         webView.setWebChromeClient(
@@ -408,7 +424,7 @@ public class MainActivity extends AppCompatActivity {
         /* =====================================================
            ANDROID BACK BUTTON
 
-           1. Close visible popup/modal
+           1. Close popup/modal
            2. Go back in WebView
            3. Exit app
            ===================================================== */
@@ -484,10 +500,6 @@ public class MainActivity extends AppCompatActivity {
                                         ");" +
 
 
-                                        /*
-                                         * Clean PDF preview state
-                                         * if Preview was closed.
-                                         */
                                         "if (" +
                                         "ids[i] === 'previewOverlay'" +
                                         ") {" +
@@ -565,6 +577,897 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(
                 "https://stat-archive.lustats.workers.dev/"
         );
+
+
+        /* =====================================================
+           CHECK FOR NEW APK VERSION
+
+           Runs in background.
+           Failure does NOT affect normal app usage.
+           ===================================================== */
+
+        checkForAppUpdate();
+    }
+
+
+    /* =========================================================
+       APP UPDATE CHECKER
+       ========================================================= */
+
+    private void checkForAppUpdate() {
+
+        new Thread(
+                () -> {
+
+                    HttpURLConnection connection =
+                            null;
+
+
+                    try {
+
+                        URL url =
+                                new URL(
+                                        UPDATE_INFO_URL
+                                );
+
+
+                        connection =
+                                (HttpURLConnection)
+                                        url.openConnection();
+
+
+                        connection.setRequestMethod(
+                                "GET"
+                        );
+
+
+                        connection.setConnectTimeout(
+                                8000
+                        );
+
+
+                        connection.setReadTimeout(
+                                8000
+                        );
+
+
+                        connection.setUseCaches(
+                                false
+                        );
+
+
+                        connection.setRequestProperty(
+                                "Cache-Control",
+                                "no-cache"
+                        );
+
+
+                        int responseCode =
+                                connection.getResponseCode();
+
+
+                        if (
+                                responseCode < 200 ||
+                                responseCode >= 300
+                        ) {
+
+                            return;
+                        }
+
+
+                        String jsonText =
+                                readText(
+                                        connection.getInputStream()
+                                );
+
+
+                        JSONObject json =
+                                new JSONObject(
+                                        jsonText
+                                );
+
+
+                        long latestVersionCode =
+                                json.optLong(
+                                        "versionCode",
+                                        0
+                                );
+
+
+                        String latestVersionName =
+                                json.optString(
+                                        "versionName",
+                                        ""
+                                );
+
+
+                        String apkUrl =
+                                json.optString(
+                                        "apkUrl",
+                                        ""
+                                );
+
+
+                        String message =
+                                json.optString(
+                                        "message",
+                                        "A new version of Stat Archive is available."
+                                );
+
+
+                        long installedVersionCode =
+                                getInstalledVersionCode();
+
+
+                        if (
+                                latestVersionCode >
+                                        installedVersionCode &&
+                                !apkUrl.trim().isEmpty()
+                        ) {
+
+                            runOnUiThread(
+                                    () ->
+                                            showUpdateDialog(
+                                                    latestVersionName,
+                                                    message,
+                                                    apkUrl
+                                            )
+                            );
+                        }
+
+
+                    } catch (
+                            Exception ignored
+                    ) {
+
+                        /*
+                         * Update checking must never
+                         * prevent the app from opening.
+                         */
+
+
+                    } finally {
+
+                        if (
+                                connection != null
+                        ) {
+
+                            connection.disconnect();
+                        }
+                    }
+                }
+        ).start();
+    }
+
+
+    /* =========================================================
+       GET INSTALLED VERSION CODE
+       ========================================================= */
+
+    private long getInstalledVersionCode()
+            throws Exception {
+
+        android.content.pm.PackageInfo info =
+                getPackageManager()
+                        .getPackageInfo(
+                                getPackageName(),
+                                0
+                        );
+
+
+        if (
+                Build.VERSION.SDK_INT >=
+                        Build.VERSION_CODES.P
+        ) {
+
+            return info.getLongVersionCode();
+        }
+
+
+        return info.versionCode;
+    }
+
+
+    /* =========================================================
+       SHOW UPDATE AVAILABLE DIALOG
+       ========================================================= */
+
+    private void showUpdateDialog(
+            String versionName,
+            String message,
+            String apkUrl
+    ) {
+
+        if (
+                isFinishing() ||
+                isDestroyed() ||
+                updateDialogShown
+        ) {
+
+            return;
+        }
+
+
+        updateDialogShown =
+                true;
+
+
+        StringBuilder text =
+                new StringBuilder();
+
+
+        if (
+                message != null &&
+                !message.trim().isEmpty()
+        ) {
+
+            text.append(
+                    message.trim()
+            );
+        } else {
+
+            text.append(
+                    "A new version of Stat Archive is available."
+            );
+        }
+
+
+        if (
+                versionName != null &&
+                !versionName.trim().isEmpty()
+        ) {
+
+            text.append(
+                    "\n\nNew version: "
+            );
+
+            text.append(
+                    versionName.trim()
+            );
+        }
+
+
+        AlertDialog dialog =
+                new AlertDialog.Builder(
+                        this
+                )
+
+                        .setTitle(
+                                "Update available"
+                        )
+
+                        .setMessage(
+                                text.toString()
+                        )
+
+                        .setPositiveButton(
+                                "Update",
+                                (d, which) ->
+                                        downloadAppUpdate(
+                                                apkUrl
+                                        )
+                        )
+
+                        .setNegativeButton(
+                                "Later",
+                                (d, which) -> {
+                                }
+                        )
+
+                        .setOnDismissListener(
+                                d ->
+                                        updateDialogShown =
+                                                false
+                        )
+
+                        .create();
+
+
+        dialog.show();
+
+
+        dialog
+                .getButton(
+                        AlertDialog.BUTTON_POSITIVE
+                )
+                .setAllCaps(
+                        false
+                );
+
+
+        dialog
+                .getButton(
+                        AlertDialog.BUTTON_NEGATIVE
+                )
+                .setAllCaps(
+                        false
+                );
+    }
+
+
+    /* =========================================================
+       DOWNLOAD NEW APK
+       ========================================================= */
+
+    private void downloadAppUpdate(
+            String apkUrl
+    ) {
+
+        if (
+                apkUrl == null ||
+                apkUrl.trim().isEmpty()
+        ) {
+
+            Toast.makeText(
+                    this,
+                    "Update download address is missing.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            return;
+        }
+
+
+        /*
+         * Only allow HTTPS update downloads.
+         */
+        if (
+                !apkUrl
+                        .toLowerCase()
+                        .startsWith(
+                                "https://"
+                        )
+        ) {
+
+            Toast.makeText(
+                    this,
+                    "Invalid update download address.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            return;
+        }
+
+
+        Toast.makeText(
+                this,
+                "Downloading update…",
+                Toast.LENGTH_SHORT
+        ).show();
+
+
+        new Thread(
+                () -> {
+
+                    HttpURLConnection connection =
+                            null;
+
+
+                    File temporaryFile =
+                            null;
+
+
+                    try {
+
+                        URL url =
+                                new URL(
+                                        apkUrl
+                                );
+
+
+                        connection =
+                                (HttpURLConnection)
+                                        url.openConnection();
+
+
+                        connection.setRequestMethod(
+                                "GET"
+                        );
+
+
+                        connection.setConnectTimeout(
+                                15000
+                        );
+
+
+                        connection.setReadTimeout(
+                                30000
+                        );
+
+
+                        connection.setInstanceFollowRedirects(
+                                true
+                        );
+
+
+                        int responseCode =
+                                connection.getResponseCode();
+
+
+                        if (
+                                responseCode < 200 ||
+                                responseCode >= 300
+                        ) {
+
+                            throw new IOException(
+                                    "APK download failed."
+                            );
+                        }
+
+
+                        File updatesDirectory =
+                                new File(
+                                        getCacheDir(),
+                                        "updates"
+                                );
+
+
+                        if (
+                                !updatesDirectory.exists() &&
+                                !updatesDirectory.mkdirs()
+                        ) {
+
+                            throw new IOException(
+                                    "Couldn't create update directory."
+                            );
+                        }
+
+
+                        temporaryFile =
+                                new File(
+                                        updatesDirectory,
+                                        "stat-archive-update.download"
+                                );
+
+
+                        File finalApk =
+                                new File(
+                                        updatesDirectory,
+                                        "stat-archive-update.apk"
+                                );
+
+
+                        if (
+                                temporaryFile.exists()
+                        ) {
+
+                            temporaryFile.delete();
+                        }
+
+
+                        if (
+                                finalApk.exists()
+                        ) {
+
+                            finalApk.delete();
+                        }
+
+
+                        try (
+                                InputStream input =
+                                        new BufferedInputStream(
+                                                connection.getInputStream()
+                                        );
+
+                                FileOutputStream output =
+                                        new FileOutputStream(
+                                                temporaryFile
+                                        )
+                        ) {
+
+                            byte[] buffer =
+                                    new byte[8192];
+
+
+                            int count;
+
+
+                            while (
+                                    (count =
+                                            input.read(
+                                                    buffer
+                                            )) != -1
+                            ) {
+
+                                output.write(
+                                        buffer,
+                                        0,
+                                        count
+                                );
+                            }
+
+
+                            output.flush();
+                        }
+
+
+                        /*
+                         * Reject obviously invalid
+                         * tiny downloads.
+                         */
+                        if (
+                                temporaryFile.length() <
+                                        50_000
+                        ) {
+
+                            throw new IOException(
+                                    "Downloaded update is invalid."
+                            );
+                        }
+
+
+                        if (
+                                !temporaryFile.renameTo(
+                                        finalApk
+                                )
+                        ) {
+
+                            copyFile(
+                                    temporaryFile,
+                                    finalApk
+                            );
+
+
+                            temporaryFile.delete();
+                        }
+
+
+                        pendingUpdateApk =
+                                finalApk;
+
+
+                        runOnUiThread(
+                                () ->
+                                        beginUpdateInstallation(
+                                                finalApk
+                                        )
+                        );
+
+
+                    } catch (
+                            Exception e
+                    ) {
+
+                        if (
+                                temporaryFile != null &&
+                                temporaryFile.exists()
+                        ) {
+
+                            temporaryFile.delete();
+                        }
+
+
+                        runOnUiThread(
+                                () ->
+                                        Toast.makeText(
+                                                MainActivity.this,
+                                                "Couldn't download the update.",
+                                                Toast.LENGTH_LONG
+                                        ).show()
+                        );
+
+
+                    } finally {
+
+                        if (
+                                connection != null
+                        ) {
+
+                            connection.disconnect();
+                        }
+                    }
+                }
+        ).start();
+    }
+
+
+    /* =========================================================
+       INSTALL DOWNLOADED APK
+       ========================================================= */
+
+    private void beginUpdateInstallation(
+            File apkFile
+    ) {
+
+        if (
+                apkFile == null ||
+                !apkFile.exists()
+        ) {
+
+            Toast.makeText(
+                    this,
+                    "Update file could not be found.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            return;
+        }
+
+
+        pendingUpdateApk =
+                apkFile;
+
+
+        /*
+         * Android 8+ requires the user to allow
+         * this app to install unknown apps.
+         */
+        if (
+                Build.VERSION.SDK_INT >=
+                        Build.VERSION_CODES.O &&
+                !getPackageManager()
+                        .canRequestPackageInstalls()
+        ) {
+
+            new AlertDialog.Builder(
+                    this
+            )
+
+                    .setTitle(
+                            "Allow app updates"
+                    )
+
+                    .setMessage(
+                            "Android needs permission for Stat Archive to install its downloaded update. Enable \"Allow from this source\", then return to Stat Archive."
+                    )
+
+                    .setPositiveButton(
+                            "Open settings",
+                            (d, which) -> {
+
+                                try {
+
+                                    Intent intent =
+                                            new Intent(
+                                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
+                                            );
+
+
+                                    intent.setData(
+                                            Uri.parse(
+                                                    "package:" +
+                                                            getPackageName()
+                                            )
+                                    );
+
+
+                                    startActivity(
+                                            intent
+                                    );
+
+
+                                } catch (
+                                        Exception e
+                                ) {
+
+                                    Toast.makeText(
+                                            MainActivity.this,
+                                            "Couldn't open installation settings.",
+                                            Toast.LENGTH_LONG
+                                    ).show();
+                                }
+                            }
+                    )
+
+                    .setNegativeButton(
+                            "Cancel",
+                            null
+                    )
+
+                    .show();
+
+
+            return;
+        }
+
+
+        installDownloadedApk(
+                apkFile
+        );
+    }
+
+
+    /* =========================================================
+       OPEN ANDROID PACKAGE INSTALLER
+       ========================================================= */
+
+    private void installDownloadedApk(
+            File apkFile
+    ) {
+
+        try {
+
+            Uri apkUri =
+                    FileProvider.getUriForFile(
+                            this,
+                            getPackageName()
+                                    + ".fileprovider",
+                            apkFile
+                    );
+
+
+            Intent intent =
+                    new Intent(
+                            Intent.ACTION_VIEW
+                    );
+
+
+            intent.setDataAndType(
+                    apkUri,
+                    "application/vnd.android.package-archive"
+            );
+
+
+            intent.addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+
+
+            intent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+            );
+
+
+            startActivity(
+                    intent
+            );
+
+
+        } catch (
+                Exception e
+        ) {
+
+            Toast.makeText(
+                    this,
+                    "Couldn't start the Android update installer.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+
+    /* =========================================================
+       AFTER RETURNING FROM INSTALL-PERMISSION SETTINGS
+       ========================================================= */
+
+    @Override
+    protected void onResume() {
+
+        super.onResume();
+
+
+        if (
+                pendingUpdateApk == null ||
+                !pendingUpdateApk.exists()
+        ) {
+
+            return;
+        }
+
+
+        if (
+                Build.VERSION.SDK_INT >=
+                        Build.VERSION_CODES.O
+        ) {
+
+            if (
+                    !getPackageManager()
+                            .canRequestPackageInstalls()
+            ) {
+
+                return;
+            }
+        }
+
+
+        File apk =
+                pendingUpdateApk;
+
+
+        pendingUpdateApk =
+                null;
+
+
+        installDownloadedApk(
+                apk
+        );
+    }
+
+
+    /* =========================================================
+       READ VERSION.JSON
+       ========================================================= */
+
+    private String readText(
+            InputStream inputStream
+    ) throws IOException {
+
+        StringBuilder builder =
+                new StringBuilder();
+
+
+        try (
+                InputStream input =
+                        new BufferedInputStream(
+                                inputStream
+                        )
+        ) {
+
+            byte[] buffer =
+                    new byte[4096];
+
+
+            int count;
+
+
+            while (
+                    (count =
+                            input.read(
+                                    buffer
+                            )) != -1
+            ) {
+
+                builder.append(
+                        new String(
+                                buffer,
+                                0,
+                                count,
+                                java.nio.charset.StandardCharsets.UTF_8
+                        )
+                );
+            }
+        }
+
+
+        return builder.toString();
+    }
+
+
+    /* =========================================================
+       COPY APK IF RENAME FAILS
+       ========================================================= */
+
+    private void copyFile(
+            File source,
+            File destination
+    ) throws IOException {
+
+        try (
+                InputStream input =
+                        new java.io.FileInputStream(
+                                source
+                        );
+
+                OutputStream output =
+                        new FileOutputStream(
+                                destination
+                        )
+        ) {
+
+            byte[] buffer =
+                    new byte[8192];
+
+
+            int count;
+
+
+            while (
+                    (count =
+                            input.read(
+                                    buffer
+                            )) != -1
+            ) {
+
+                output.write(
+                        buffer,
+                        0,
+                        count
+                );
+            }
+
+
+            output.flush();
+        }
     }
 
 
@@ -753,8 +1656,6 @@ public class MainActivity extends AppCompatActivity {
 
         /* =====================================================
            SAVE FILE TO ANDROID FILES
-
-           Opens Android's native Save As picker.
            ===================================================== */
 
         @JavascriptInterface
@@ -849,7 +1750,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (
                 requestCode !=
-                SAVE_FILE_REQUEST
+                        SAVE_FILE_REQUEST
         ) {
 
             return;
@@ -938,7 +1839,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     /* =========================================================
-       WRITE BASE64 FILE TO TEMPORARY ANDROID CACHE
+       CREATE TEMP SHARED FILE
        ========================================================= */
 
     private File createSharedFile(
