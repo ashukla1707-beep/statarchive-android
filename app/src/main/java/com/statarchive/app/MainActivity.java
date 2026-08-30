@@ -15,6 +15,7 @@ import android.util.Base64;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -53,6 +54,14 @@ import javax.crypto.spec.GCMParameterSpec;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+
+    /* =========================================================
+       WEBVIEW FILE CHOOSER
+       ========================================================= */
+
+    private static final int FILE_CHOOSER_REQUEST = 9002;
+
+    private ValueCallback<Uri[]> filePathCallback;
 
 
     /* =========================================================
@@ -383,6 +392,73 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebChromeClient(
                 new WebChromeClient() {
+
+                    @Override
+                    public boolean onShowFileChooser(
+                            WebView webView,
+                            ValueCallback<Uri[]> filePathCallback,
+                            FileChooserParams fileChooserParams
+                    ) {
+
+                        /*
+                         * Cancel any older chooser callback first.
+                         */
+                        if (
+                                MainActivity.this.filePathCallback != null
+                        ) {
+
+                            MainActivity.this.filePathCallback
+                                    .onReceiveValue(
+                                            null
+                                    );
+                        }
+
+
+                        MainActivity.this.filePathCallback =
+                                filePathCallback;
+
+
+                        try {
+
+                            Intent intent =
+                                    fileChooserParams
+                                            .createIntent();
+
+
+                            startActivityForResult(
+                                    intent,
+                                    FILE_CHOOSER_REQUEST
+                            );
+
+
+                            return true;
+
+
+                        } catch (
+                                ActivityNotFoundException e
+                        ) {
+
+                            MainActivity.this.filePathCallback
+                                    .onReceiveValue(
+                                            null
+                                    );
+
+
+                            MainActivity.this.filePathCallback =
+                                    null;
+
+
+                            Toast.makeText(
+                                    MainActivity.this,
+                                    "No file picker is available on this device.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+
+
+                            return false;
+                        }
+                    }
+
 
                     @Override
                     public boolean onJsConfirm(
