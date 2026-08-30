@@ -248,33 +248,138 @@ public class MainActivity extends AppCompatActivity {
         );
 
 
-        /* =====================================================
-           ANDROID BACK BUTTON
-           ===================================================== */
+      /* =====================================================
+   ANDROID BACK BUTTON
 
-        getOnBackPressedDispatcher()
-                .addCallback(
-                        this,
-                        new OnBackPressedCallback(true) {
+   Priority:
+   1. Close any open Stat Archive popup/modal
+   2. Go back in WebView history
+   3. Exit app
+   ===================================================== */
 
-                            @Override
-                            public void handleOnBackPressed() {
+getOnBackPressedDispatcher()
+        .addCallback(
+                this,
+                new OnBackPressedCallback(true) {
 
-                                if (
-                                        webView != null &&
-                                        webView.canGoBack()
-                                ) {
+                    @Override
+                    public void handleOnBackPressed() {
 
-                                    webView.goBack();
-
-                                } else {
-
-                                    finish();
-                                }
-                            }
+                        if (webView == null) {
+                            finish();
+                            return;
                         }
-                );
 
+                        webView.evaluateJavascript(
+                                "(function() {" +
+
+                                "var closed = false;" +
+
+                                /*
+                                 * PDF / image preview
+                                 */
+                                "var preview = document.getElementById('previewOverlay');" +
+                                "if (preview && getComputedStyle(preview).display !== 'none') {" +
+                                    "if (typeof closePreview === 'function') {" +
+                                        "closePreview();" +
+                                    "} else {" +
+                                        "preview.style.display = 'none';" +
+                                        "document.body.classList.remove('no-scroll');" +
+                                    "}" +
+                                    "return true;" +
+                                "}" +
+
+                                /*
+                                 * Offline Library
+                                 */
+                                "var offline = document.getElementById('offlineLibraryOverlay');" +
+                                "if (offline && getComputedStyle(offline).display !== 'none') {" +
+                                    "if (typeof closeOfflineLibrary === 'function') {" +
+                                        "closeOfflineLibrary();" +
+                                    "} else {" +
+                                        "offline.style.display = 'none';" +
+                                        "document.body.classList.remove('no-scroll');" +
+                                    "}" +
+                                    "return true;" +
+                                "}" +
+
+                                /*
+                                 * Edit Entry
+                                 */
+                                "var edit = document.getElementById('editEntryOverlay');" +
+                                "if (edit && getComputedStyle(edit).display !== 'none') {" +
+                                    "if (typeof closeEditEntry === 'function') {" +
+                                        "closeEditEntry();" +
+                                    "} else {" +
+                                        "edit.style.display = 'none';" +
+                                        "document.body.classList.remove('no-scroll');" +
+                                    "}" +
+                                    "return true;" +
+                                "}" +
+
+                                /*
+                                 * Upload / Add Entry
+                                 */
+                                "var upload = document.getElementById('overlay');" +
+                                "if (upload && getComputedStyle(upload).display !== 'none') {" +
+                                    "if (typeof closeAndResetUploadForm === 'function') {" +
+                                        "closeAndResetUploadForm();" +
+                                    "} else {" +
+                                        "upload.style.display = 'none';" +
+                                        "document.body.classList.remove('no-scroll');" +
+                                    "}" +
+                                    "return true;" +
+                                "}" +
+
+                                /*
+                                 * Contributor disclaimer
+                                 */
+                                "var disclaimer = document.getElementById('contributorDisclaimerOverlay');" +
+                                "if (disclaimer && getComputedStyle(disclaimer).display !== 'none') {" +
+                                    "disclaimer.style.display = 'none';" +
+                                    "document.body.classList.remove('no-scroll');" +
+                                    "return true;" +
+                                "}" +
+
+                                /*
+                                 * Sign In
+                                 */
+                                "var login = document.getElementById('loginOverlay');" +
+                                "if (login && getComputedStyle(login).display !== 'none') {" +
+                                    "if (typeof clearLoginModalState === 'function') {" +
+                                        "clearLoginModalState();" +
+                                    "}" +
+                                    "login.style.display = 'none';" +
+                                    "document.body.classList.remove('no-scroll');" +
+                                    "return true;" +
+                                "}" +
+
+                                /*
+                                 * Nothing was open.
+                                 */
+                                "return false;" +
+
+                                "})();",
+
+                                value -> {
+
+                                    boolean popupClosed =
+                                            "true".equals(value);
+
+                                    if (popupClosed) {
+                                        return;
+                                    }
+
+                                    if (webView.canGoBack()) {
+                                        webView.goBack();
+                                    } else {
+                                        finish();
+                                    }
+                                }
+                        );
+                    }
+                }
+        );
 
         /* =====================================================
            LOAD STAT ARCHIVE
