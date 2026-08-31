@@ -35,6 +35,7 @@ import androidx.core.view.WindowInsetsCompat;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -44,6 +45,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.ArrayList;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -62,6 +64,19 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILE_CHOOSER_REQUEST = 9002;
 
     private ValueCallback<Uri[]> filePathCallback;
+
+
+    /* =========================================================
+       CREATE-ENTRY SCANNER
+
+       Native camera/gallery picker used only by the scanner
+       inside the existing Stat Archive upload form.
+       ========================================================= */
+
+    private static final int SCANNER_CAMERA_REQUEST = 9101;
+    private static final int SCANNER_GALLERY_REQUEST = 9102;
+
+    private File pendingScannerCameraFile = null;
 
 
     /* =========================================================
@@ -563,6 +578,9 @@ public class MainActivity extends AppCompatActivity {
 
                                         "var ids = [" +
 
+                                        "'scannerEditorOverlay'," +
+                                        "'scannerSourceSheet'," +
+                                        "'scannerOverlay'," +
                                         "'previewOverlay'," +
                                         "'offlineLibraryOverlay'," +
                                         "'editEntryOverlay'," +
@@ -1725,6 +1743,153 @@ public class MainActivity extends AppCompatActivity {
 
 
         /* =====================================================
+           CREATE-ENTRY SCANNER
+           ===================================================== */
+
+        @JavascriptInterface
+        public void scannerTakePhoto() {
+
+            runOnUiThread(
+                    () -> {
+
+                        try {
+
+                            File scannerDirectory =
+                                    new File(
+                                            getCacheDir(),
+                                            "scanner"
+                                    );
+
+
+                            if (
+                                    !scannerDirectory.exists() &&
+                                    !scannerDirectory.mkdirs()
+                            ) {
+
+                                throw new IOException(
+                                        "Could not create scanner directory."
+                                );
+                            }
+
+
+                            pendingScannerCameraFile =
+                                    File.createTempFile(
+                                            "page_",
+                                            ".jpg",
+                                            scannerDirectory
+                                    );
+
+
+                            Uri outputUri =
+                                    FileProvider.getUriForFile(
+                                            MainActivity.this,
+                                            getPackageName()
+                                                    + ".fileprovider",
+                                            pendingScannerCameraFile
+                                    );
+
+
+                            Intent intent =
+                                    new Intent(
+                                            android.provider.MediaStore.ACTION_IMAGE_CAPTURE
+                                    );
+
+
+                            intent.putExtra(
+                                    android.provider.MediaStore.EXTRA_OUTPUT,
+                                    outputUri
+                            );
+
+
+                            intent.addFlags(
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            );
+
+
+                            startActivityForResult(
+                                    intent,
+                                    SCANNER_CAMERA_REQUEST
+                            );
+
+
+                        } catch (
+                                Exception e
+                        ) {
+
+                            pendingScannerCameraFile =
+                                    null;
+
+
+                            Toast.makeText(
+                                    MainActivity.this,
+                                    "Couldn't open the camera.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+
+
+                            notifyScannerBatchDone();
+                        }
+                    }
+            );
+        }
+
+
+        @JavascriptInterface
+        public void scannerChoosePhotos() {
+
+            runOnUiThread(
+                    () -> {
+
+                        try {
+
+                            Intent intent =
+                                    new Intent(
+                                            Intent.ACTION_OPEN_DOCUMENT
+                                    );
+
+
+                            intent.addCategory(
+                                    Intent.CATEGORY_OPENABLE
+                            );
+
+
+                            intent.setType(
+                                    "image/*"
+                            );
+
+
+                            intent.putExtra(
+                                    Intent.EXTRA_ALLOW_MULTIPLE,
+                                    true
+                            );
+
+
+                            startActivityForResult(
+                                    intent,
+                                    SCANNER_GALLERY_REQUEST
+                            );
+
+
+                        } catch (
+                                Exception e
+                        ) {
+
+                            Toast.makeText(
+                                    MainActivity.this,
+                                    "Couldn't open the photo picker.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+
+
+                            notifyScannerBatchDone();
+                        }
+                    }
+            );
+        }
+
+
+        /* =====================================================
            SECURE PASSCODE STORAGE
            ===================================================== */
 
@@ -2186,7 +2351,183 @@ public class MainActivity extends AppCompatActivity {
 
 
     /* =========================================================
-       RESULT FROM ANDROID SAVE-AS PICKER
+       CREATE-ENTRY SCANNER -> WEBVIEW
+       ========================================================= */
+
+    private void notifyScannerBatchDone() {
+
+        if (
+                webView == null
+        ) {
+            return;
+        }
+
+
+        webView.evaluateJavascript(
+                "window.statArchiveScannerNativeBatchDone && " +
+                        "window.statArchiveScannerNativeBatchDone();",
+                null
+        );
+    }
+
+
+    private void sendScannerImagesToWeb(
+            ArrayList<Uri> uris,
+            int index
+    ) {
+
+        if (
+                webView == null
+        ) {
+            return;
+        }
+
+
+        if (
+                uris == null ||
+                index >= uris.size()
+        ) {
+
+            notifyScannerBatchDone();
+
+            return;
+        }
+
+
+        Uri uri =
+                uris.get(
+                        index
+                );
+
+
+        try (
+                InputStream input =
+                        getContentResolver()
+                                .openInputStream(
+                                        uri
+                                );
+
+                ByteArrayOutputStream output =
+                        new ByteArrayOutputStream()
+        ) {
+
+            if (
+                    input == null
+            ) {
+
+                sendScannerImagesToWeb(
+                        uris,
+                        index + 1
+                );
+
+                return;
+            }
+
+
+            byte[] buffer =
+                    new byte[8192];
+
+
+            int read;
+
+
+            while (
+                    (
+                            read =
+                                    input.read(
+                                            buffer
+                                    )
+                    ) != -1
+            ) {
+
+                output.write(
+                        buffer,
+                        0,
+                        read
+                );
+            }
+
+
+            String mime =
+                    getContentResolver()
+                            .getType(
+                                    uri
+                            );
+
+
+            if (
+                    mime == null ||
+                    !mime.startsWith(
+                            "image/"
+                    )
+            ) {
+
+                mime =
+                        "image/jpeg";
+            }
+
+
+            String dataUrl =
+                    "data:" +
+                            mime +
+                            ";base64," +
+                            Base64.encodeToString(
+                                    output.toByteArray(),
+                                    Base64.NO_WRAP
+                            );
+
+
+            String filename =
+                    "page_" +
+                            (
+                                    index + 1
+                            ) +
+                            (
+                                    mime.contains(
+                                            "png"
+                                    )
+                                            ? ".png"
+                                            : ".jpg"
+                            );
+
+
+            String js =
+                    "window.statArchiveScannerNativeReceive && " +
+                            "window.statArchiveScannerNativeReceive(" +
+                            JSONObject.quote(
+                                    dataUrl
+                            ) +
+                            "," +
+                            JSONObject.quote(
+                                    filename
+                            ) +
+                            ");";
+
+
+            webView.evaluateJavascript(
+                    js,
+                    value ->
+                            sendScannerImagesToWeb(
+                                    uris,
+                                    index + 1
+                            )
+            );
+
+
+        } catch (
+                Exception e
+        ) {
+
+            sendScannerImagesToWeb(
+                    uris,
+                    index + 1
+            );
+        }
+    }
+
+
+    /* =========================================================
+       RESULT FROM ANDROID PICKERS / SAVE-AS PICKER
        ========================================================= */
 
     @Override
@@ -2195,6 +2536,119 @@ public class MainActivity extends AppCompatActivity {
             int resultCode,
             Intent data
     ) {
+
+        /*
+         * Result from scanner camera.
+         */
+        if (
+                requestCode ==
+                        SCANNER_CAMERA_REQUEST
+        ) {
+
+            ArrayList<Uri> uris =
+                    new ArrayList<>();
+
+
+            if (
+                    resultCode == RESULT_OK &&
+                    pendingScannerCameraFile != null &&
+                    pendingScannerCameraFile.exists()
+            ) {
+
+                uris.add(
+                        FileProvider.getUriForFile(
+                                this,
+                                getPackageName()
+                                        + ".fileprovider",
+                                pendingScannerCameraFile
+                        )
+                );
+            }
+
+
+            pendingScannerCameraFile =
+                    null;
+
+
+            sendScannerImagesToWeb(
+                    uris,
+                    0
+            );
+
+
+            return;
+        }
+
+
+        /*
+         * Result from scanner multi-select gallery.
+         */
+        if (
+                requestCode ==
+                        SCANNER_GALLERY_REQUEST
+        ) {
+
+            ArrayList<Uri> uris =
+                    new ArrayList<>();
+
+
+            if (
+                    resultCode == RESULT_OK &&
+                    data != null
+            ) {
+
+                if (
+                        data.getClipData() != null
+                ) {
+
+                    android.content.ClipData clipData =
+                            data.getClipData();
+
+
+                    for (
+                            int i = 0;
+                            i < clipData.getItemCount();
+                            i++
+                    ) {
+
+                        Uri uri =
+                                clipData
+                                        .getItemAt(
+                                                i
+                                        )
+                                        .getUri();
+
+
+                        if (
+                                uri != null
+                        ) {
+
+                            uris.add(
+                                    uri
+                            );
+                        }
+                    }
+
+                } else if (
+                        data.getData() != null
+                ) {
+
+                    uris.add(
+                            data.getData()
+                    );
+                }
+            }
+
+
+            sendScannerImagesToWeb(
+                    uris,
+                    0
+            );
+
+
+            return;
+        }
+
 
         /*
          * Result from the HTML <input type="file"> chooser used by
