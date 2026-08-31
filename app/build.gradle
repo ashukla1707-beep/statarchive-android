@@ -15,32 +15,15 @@ android {
         /*
          * IMPORTANT FOR APP UPDATES
          *
-         * Increase versionCode for EVERY new APK:
-         *
-         * First APK   -> 1
-         * Next APK    -> 2
-         * Next APK    -> 3
-         * etc.
-         *
-         * Android uses this number to determine
-         * whether an APK is newer.
+         * Increase versionCode for EVERY new APK.
          */
-        versionCode 9
+        versionCode 10
 
         /*
          * Human-readable version shown to users.
          */
-        versionName '1.5.2'
+        versionName '1.5.3'
     }
-
-
-    /* =========================================================
-       RELEASE SIGNING
-
-       IMPORTANT:
-       Every future APK update MUST use this same keystore.
-       Otherwise Android will refuse to install it as an update.
-       ========================================================= */
 
     signingConfigs {
 
@@ -66,7 +49,6 @@ android {
         }
     }
 
-
     buildTypes {
 
         release {
@@ -81,19 +63,8 @@ android {
 
 dependencies {
 
-    /*
-     * Currently required because the manifest still
-     * contains Android Browser Helper / TWA components.
-     */
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.2'
-
-
-    /*
-     * Used by MainActivity.java.
-     */
     implementation 'androidx.appcompat:appcompat:1.7.1'
-
     implementation 'androidx.activity:activity:1.10.1'
-
     implementation 'androidx.core:core:1.15.0'
 }
