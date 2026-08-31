@@ -2,14 +2,9 @@ name: Build StatArchive APK and AAB
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/build-apk.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -51,18 +46,6 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           gradle assembleRelease bundleRelease --stacktrace
-
-      - name: Publish APK for in-app updater
-        run: |
-          mkdir -p downloads
-          cp app/build/outputs/apk/release/app-release.apk downloads/stat-archive.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add downloads/stat-archive.apk
-          if ! git diff --cached --quiet; then
-            git commit -m "Publish Stat Archive APK 1.5.3"
-            git push
-          fi
 
       - name: Upload StatArchive APK
         uses: actions/upload-artifact@v4
