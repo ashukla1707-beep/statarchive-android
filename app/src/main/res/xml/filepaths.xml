@@ -7,6 +7,11 @@
         name="shared_files"
         path="shared/" />
 
+    <!-- Temporary scanner camera photos -->
+    <cache-path
+        name="scanner_files"
+        path="scanner/" />
+
     <!-- Downloaded APK used for app updates -->
     <cache-path
         name="app_updates"
