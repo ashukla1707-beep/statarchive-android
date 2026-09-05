@@ -46,13 +46,30 @@ jobs:
       - name: Reconstruct and verify approved splash
         run: |
           mkdir -p app/src/main/res/drawable-nodpi
-          : > app/src/main/res/drawable-nodpi/splash_exact.png
-          for f in .splash_exact_png/part*.b64; do
-            base64 --decode "$f" >> app/src/main/res/drawable-nodpi/splash_exact.png
-          done
-          test "$(stat -c%s app/src/main/res/drawable-nodpi/splash_exact.png)" = "662640"
-          echo "57d7cb309ed5d739319532d96a995bee58bd924a06845e6871d9eda38f31cbe8  app/src/main/res/drawable-nodpi/splash_exact.png" | sha256sum -c -
-          file app/src/main/res/drawable-nodpi/splash_exact.png
+          rm -f app/src/main/res/drawable-nodpi/splash_exact.png app/src/main/res/drawable-nodpi/splash_exact.webp
+          : > /tmp/splash_exact.b64
+          cat .splash_exact_png/part01.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part02.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part03.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part04.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part05.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part06.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part07.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08a.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08b1a.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08b1b1.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08b1b2a.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08b1b2b1.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08b1b2b2.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08b2.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08c.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_webp/part08d.b64 >> /tmp/splash_exact.b64
+          cat .splash_exact_png/part09.b64 >> /tmp/splash_exact.b64
+          test "$(stat -c%s /tmp/splash_exact.b64)" = "132276"
+          base64 --decode /tmp/splash_exact.b64 > app/src/main/res/drawable-nodpi/splash_exact.webp
+          test "$(stat -c%s app/src/main/res/drawable-nodpi/splash_exact.webp)" = "99206"
+          echo "a0c152dadc7e9e95a932627c75f7d011ed04b3899b6c30d3e9fbb0d57a7e6018  app/src/main/res/drawable-nodpi/splash_exact.webp" | sha256sum -c -
+          file app/src/main/res/drawable-nodpi/splash_exact.webp | grep -q "Web/P image"
 
       - name: Build signed release APK and AAB
         env:
@@ -83,7 +100,7 @@ jobs:
           mkdir -p downloads
           cp app/build/outputs/apk/release/app-release.apk downloads/stat-archive.apk
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "4189823+github-actions[bot]@users.noreply.github.com"
           git add downloads/stat-archive.apk
           if git diff --cached --quiet; then
             echo "Published APK is already current."
