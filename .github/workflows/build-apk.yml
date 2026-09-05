@@ -5,9 +5,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'downloads/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -63,6 +65,21 @@ jobs:
           name: StatArchive-AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      - name: Publish APK for in-app updates
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p downloads
+          cp app/build/outputs/apk/release/app-release.apk downloads/stat-archive.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/stat-archive.apk
+          if git diff --cached --quiet; then
+            echo "Published APK is already current."
+          else
+            git commit -m "Publish StatArchive APK 1.5.7"
+            git push origin HEAD:main
+          fi
 
       - name: Delete temporary keystore
         if: always()
