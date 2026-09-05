@@ -53,7 +53,12 @@ android {
 
         release {
 
-            minifyEnabled false
+            // R8 optimization reduces DEX/resource size and startup work while
+            // preserving WebView bridge methods through app/proguard-rules.pro.
+            minifyEnabled true
+            shrinkResources true
+
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 
             signingConfig signingConfigs.release
         }
