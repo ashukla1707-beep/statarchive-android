@@ -45,11 +45,12 @@ public class SplashActivity extends AppCompatActivity {
 
         ImageView splashImage = new ImageView(this);
         // Use the original high-resolution PNG instead of the heavily compressed WebP.
+        // ImageView handles filtered bitmap scaling internally; setFilterBitmap() is
+        // not an ImageView API and caused the release build to fail.
         splashImage.setImageResource(R.drawable.splash);
         splashImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         splashImage.setAdjustViewBounds(false);
         splashImage.setBackgroundColor(Color.BLACK);
-        splashImage.setFilterBitmap(true);
 
         root.addView(
                 splashImage,
