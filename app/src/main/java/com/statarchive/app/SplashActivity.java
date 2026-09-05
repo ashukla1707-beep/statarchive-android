@@ -44,9 +44,10 @@ public class SplashActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.BLACK);
 
         ImageView splashImage = new ImageView(this);
-        // High-quality splash with the outer frame removed. It is generated into
-        // drawable-nodpi at build time, so Android does not density-resample it.
-        splashImage.setImageResource(R.drawable.splash_hq);
+        // Use the repository's verified high-resolution splash resource directly.
+        // This avoids runtime/build-time reconstruction issues and guarantees that
+        // the splash is visible on every launch.
+        splashImage.setImageResource(R.drawable.splash);
         splashImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         splashImage.setAdjustViewBounds(false);
         splashImage.setBackgroundColor(Color.BLACK);
