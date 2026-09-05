@@ -16,7 +16,9 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class SplashActivity extends AppCompatActivity {
 
-    private static final long SPLASH_DELAY_MS = 900L;
+    // Keep only a very short branded handoff. The previous 900 ms fixed delay
+    // made every cold launch feel slow even when the WebView was ready sooner.
+    private static final long SPLASH_DELAY_MS = 120L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,6 +70,6 @@ public class SplashActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        // Ignore Back while the launch splash is visible.
+        // Ignore Back while the very short launch splash is visible.
     }
 }
