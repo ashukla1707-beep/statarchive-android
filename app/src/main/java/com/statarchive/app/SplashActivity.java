@@ -16,9 +16,8 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class SplashActivity extends AppCompatActivity {
 
-    // Keep only a very short branded handoff. The previous 900 ms fixed delay
-    // made every cold launch feel slow even when the WebView was ready sooner.
-    private static final long SPLASH_DELAY_MS = 120L;
+    // Keep the original branded splash duration.
+    private static final long SPLASH_DELAY_MS = 900L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,10 +44,12 @@ public class SplashActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.BLACK);
 
         ImageView splashImage = new ImageView(this);
-        splashImage.setImageResource(R.drawable.stat_archive_full_splash);
+        // Use the original high-resolution PNG instead of the heavily compressed WebP.
+        splashImage.setImageResource(R.drawable.splash);
         splashImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         splashImage.setAdjustViewBounds(false);
         splashImage.setBackgroundColor(Color.BLACK);
+        splashImage.setFilterBitmap(true);
 
         root.addView(
                 splashImage,
@@ -70,6 +71,6 @@ public class SplashActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        // Ignore Back while the very short launch splash is visible.
+        // Ignore Back while the launch splash is visible.
     }
 }
