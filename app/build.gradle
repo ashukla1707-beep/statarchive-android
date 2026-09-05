@@ -75,34 +75,39 @@ android {
 }
 
 // Rebuild the high-quality WebP splash before Android merges resources.
-// The split source avoids GitHub text-tool limitations while producing one normal
-// drawable inside the APK. The output is not re-encoded or recompressed here.
+// Each *.b64 file is an independently Base64-encoded binary chunk, so each chunk
+// must be decoded separately and the resulting bytes concatenated. Concatenating
+// the Base64 strings first leaves padding characters in the middle and causes
+// "Input byte array has incorrect ending byte" during CI builds.
 tasks.register('prepareHighQualitySplash') {
     doLast {
-        def parts = (1..6).collect { n ->
-            file(String.format('src/main/assets/splash94_%02d.b64', n))
-        }
+        def parts = fileTree('src/main/assets') {
+            include 'splash94_*.b64'
+        }.files.sort { a, b -> a.name <=> b.name }
 
-        parts.each { part ->
-            if (!part.exists()) {
-                throw new GradleException("Missing splash image part: ${part}")
-            }
+        if (parts.isEmpty()) {
+            throw new GradleException('No high-quality splash image parts were found.')
         }
-
-        def encoded = new StringBuilder()
-        parts.each { part ->
-            encoded.append(part.getText('UTF-8').trim())
-        }
-
-        byte[] imageBytes = java.util.Base64.getDecoder().decode(encoded.toString())
 
         def outputDir = file("$buildDir/generated/splash-res/drawable-nodpi")
         outputDir.mkdirs()
-
         def outputFile = new File(outputDir, 'splash_hq.webp')
-        outputFile.bytes = imageBytes
 
-        if (imageBytes.length < 30000) {
+        outputFile.withOutputStream { out ->
+            parts.each { part ->
+                def text = part.getText('UTF-8').replaceAll('\\s+', '')
+                if (text.isEmpty()) {
+                    throw new GradleException("Splash image part is empty: ${part.name}")
+                }
+                try {
+                    out.write(java.util.Base64.getDecoder().decode(text))
+                } catch (IllegalArgumentException ex) {
+                    throw new GradleException("Invalid Base64 in splash image part: ${part.name}", ex)
+                }
+            }
+        }
+
+        if (outputFile.length() < 30000) {
             throw new GradleException('Generated splash image is unexpectedly small.')
         }
     }
