@@ -43,9 +43,7 @@ public class SplashActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.BLACK);
 
         ImageView splashImage = new ImageView(this);
-        // Use the verified full-resolution splash image bundled with the app.
-        // The temporary splash_latest resource was invalid and rendered as black.
-        splashImage.setImageResource(R.drawable.splash);
+        splashImage.setImageResource(R.drawable.splash_exact);
         splashImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         splashImage.setAdjustViewBounds(false);
         splashImage.setBackgroundColor(Color.BLACK);
