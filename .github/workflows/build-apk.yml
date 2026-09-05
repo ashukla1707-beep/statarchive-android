@@ -46,8 +46,10 @@ jobs:
       - name: Reconstruct and verify approved splash
         run: |
           mkdir -p app/src/main/res/drawable-nodpi
-          cat .splash_exact_png/part*.b64 > /tmp/splash_exact.b64
-          base64 --decode /tmp/splash_exact.b64 > app/src/main/res/drawable-nodpi/splash_exact.png
+          : > app/src/main/res/drawable-nodpi/splash_exact.png
+          for f in .splash_exact_png/part*.b64; do
+            base64 --decode "$f" >> app/src/main/res/drawable-nodpi/splash_exact.png
+          done
           test "$(stat -c%s app/src/main/res/drawable-nodpi/splash_exact.png)" = "662640"
           echo "57d7cb309ed5d739319532d96a995bee58bd924a06845e6871d9eda38f31cbe8  app/src/main/res/drawable-nodpi/splash_exact.png" | sha256sum -c -
           file app/src/main/res/drawable-nodpi/splash_exact.png
