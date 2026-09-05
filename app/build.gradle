@@ -63,6 +63,53 @@ android {
             signingConfig signingConfigs.release
         }
     }
+
+    // The final splash image is reconstructed during the build from lossless text
+    // chunks kept in the repository. Keeping it in drawable-nodpi prevents Android
+    // from density-resampling the artwork and preserves its visual sharpness.
+    sourceSets {
+        main {
+            res.srcDir "$buildDir/generated/splash-res"
+        }
+    }
+}
+
+// Rebuild the high-quality WebP splash before Android merges resources.
+// The split source avoids GitHub text-tool limitations while producing one normal
+// drawable inside the APK. The output is not re-encoded or recompressed here.
+tasks.register('prepareHighQualitySplash') {
+    doLast {
+        def parts = (1..5).collect { n ->
+            file(String.format('src/main/assets/splash94_%02d.b64', n))
+        }
+
+        parts.each { part ->
+            if (!part.exists()) {
+                throw new GradleException("Missing splash image part: ${part}")
+            }
+        }
+
+        def encoded = new StringBuilder()
+        parts.each { part ->
+            encoded.append(part.getText('UTF-8').trim())
+        }
+
+        byte[] imageBytes = java.util.Base64.getDecoder().decode(encoded.toString())
+
+        def outputDir = file("$buildDir/generated/splash-res/drawable-nodpi")
+        outputDir.mkdirs()
+
+        def outputFile = new File(outputDir, 'splash_hq.webp')
+        outputFile.bytes = imageBytes
+
+        if (imageBytes.length < 30000) {
+            throw new GradleException('Generated splash image is unexpectedly small.')
+        }
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('prepareHighQualitySplash')
 }
 
 
