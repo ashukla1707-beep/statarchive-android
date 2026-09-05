@@ -16,7 +16,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class SplashActivity extends AppCompatActivity {
 
-    // Keep the original branded splash duration.
+    // Keep the preferred branded splash duration.
     private static final long SPLASH_DELAY_MS = 900L;
 
     @Override
@@ -44,10 +44,9 @@ public class SplashActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.BLACK);
 
         ImageView splashImage = new ImageView(this);
-        // Use the original high-resolution PNG instead of the heavily compressed WebP.
-        // ImageView handles filtered bitmap scaling internally; setFilterBitmap() is
-        // not an ImageView API and caused the release build to fail.
-        splashImage.setImageResource(R.drawable.splash);
+        // High-quality splash with the outer frame removed. It is generated into
+        // drawable-nodpi at build time, so Android does not density-resample it.
+        splashImage.setImageResource(R.drawable.splash_hq);
         splashImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
         splashImage.setAdjustViewBounds(false);
         splashImage.setBackgroundColor(Color.BLACK);
