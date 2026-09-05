@@ -79,7 +79,7 @@ android {
 // drawable inside the APK. The output is not re-encoded or recompressed here.
 tasks.register('prepareHighQualitySplash') {
     doLast {
-        def parts = (1..5).collect { n ->
+        def parts = (1..6).collect { n ->
             file(String.format('src/main/assets/splash94_%02d.b64', n))
         }
 
