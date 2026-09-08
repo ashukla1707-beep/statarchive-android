@@ -105,7 +105,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "Published APK is already current."
           else
-            git commit -m "Publish StatArchive APK 1.5.11"
+            git commit -m "Publish StatArchive APK 1.5.12"
             git push origin HEAD:main
           fi
 
