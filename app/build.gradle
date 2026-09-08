@@ -17,12 +17,12 @@ android {
          *
          * Increase versionCode for EVERY new APK.
          */
-        versionCode 18
+        versionCode 19
 
         /*
          * Human-readable version shown to users.
          */
-        versionName '1.5.11'
+        versionName '1.5.12'
     }
 
     signingConfigs {
