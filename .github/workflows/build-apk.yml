@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - cleanup/refactor-2026-09-10
     paths-ignore:
       - 'downloads/**'
 
