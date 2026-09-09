@@ -71,6 +71,42 @@ jobs:
           echo "a0c152dadc7e9e95a932627c75f7d011ed04b3899b6c30d3e9fbb0d57a7e6018  app/src/main/res/drawable-nodpi/splash_exact.webp" | sha256sum -c -
           file app/src/main/res/drawable-nodpi/splash_exact.webp | grep -q "Web/P image"
 
+      - name: Generate launcher icon from approved splash
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+
+          source = Path("app/src/main/res/drawable-nodpi/splash_exact.webp")
+          image = Image.open(source).convert("RGB")
+
+          # Use the exact approved splash artwork. Crop only the empty top/bottom
+          # area to a centered square so the same neon branding is large enough
+          # to read as a launcher icon.
+          w, h = image.size
+          side = min(w, h)
+          left = (w - side) // 2
+          top = (h - side) // 2
+          icon = image.crop((left, top, left + side, top + side))
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          for folder, px in sizes.items():
+              out_dir = Path("app/src/main/res") / folder
+              out_dir.mkdir(parents=True, exist_ok=True)
+              out = out_dir / "ic_launcher.png"
+              resized = icon.resize((px, px), Image.Resampling.LANCZOS)
+              resized.save(out, "PNG", optimize=True)
+              print(f"Wrote {out} ({px}x{px})")
+          PY
+
       - name: Build signed release APK and AAB
         env:
           KEYSTORE_FILE: ${{ github.workspace }}/statarchive-release.jks
@@ -105,7 +141,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "Published APK is already current."
           else
-            git commit -m "Publish StatArchive APK 1.5.12"
+            git commit -m "Publish StatArchive APK 1.5.13"
             git push origin HEAD:main
           fi
 
