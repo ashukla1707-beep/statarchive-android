@@ -1,44 +1,69 @@
-# Stat Archive TWA Android project
+# Stat Archive Android
 
-This project wraps **https://stat-archive.lustats.workers.dev/** as a Trusted Web Activity.
+Android wrapper for **https://stat-archive.lustats.workers.dev/**.
+
+The current app is a native Android **WebView** wrapper. It is not a Trusted Web Activity and it does not use Android Browser Helper.
 
 ## Android configuration
 
 - Package: `com.statarchive.app`
 - Min SDK: 24
-- Target SDK: 36 (Android 16)
+- Target SDK: 36
 - Compile SDK: 36
-- Android Browser Helper: 2.7.2
-- Release signing key: `statarchive-release.jks`
+- Java: 17
+- Android Gradle Plugin: 8.9.1
+- Gradle used by CI: 8.11.1
 
-## Before building
+`SplashActivity` launches `SafeMainActivity`, which extends the established `MainActivity` and adds Android-specific safety fixes while retaining the existing WebView behavior.
 
-Upload the contents of the `website/` folder to the matching paths on your site:
+## Build locally
 
-- `/manifest.json`
-- `/icons/icon-192.png`
-- `/icons/icon-512.png`
-- `/icons/icon-512-maskable.png`
-- `/.well-known/assetlinks.json`
-
-The `assetlinks.json` file is already generated for this project's release signing certificate.
-Serve it as JSON over HTTPS with no login or redirect.
-
-## Build in Android Studio
-
-1. Install a current Android Studio with Android SDK 36.
-2. Open this folder as an Android project.
+1. Install Android Studio with Android SDK 36 and Java 17.
+2. Open this repository as the Android project.
 3. Let Gradle sync and download dependencies.
-4. Build > Generate Signed App Bundle / APK.
-5. Choose APK for direct sharing or Android App Bundle (AAB) for Google Play.
-6. Use `statarchive-release.jks`, alias `statarchive`, and the password in `SIGNING_INFO.txt`.
+4. For a release build, provide the signing values expected by `app/build.gradle`:
+   - `KEYSTORE_FILE`
+   - `KEYSTORE_PASSWORD`
+   - `KEY_ALIAS`
+   - `KEY_PASSWORD`
+5. Run `gradle assembleRelease bundleRelease` or use Android Studio's signed APK/AAB build flow.
 
-## Verification
+Do **not** commit a release keystore, passwords, signing-info text files, or other signing secrets to this public repository.
 
-After deploying `assetlinks.json`, opening the app should use a full-screen Trusted Web Activity instead of showing a Custom Tab address bar. If verification fails, first verify that this exact URL returns the JSON file:
+## GitHub Actions build
 
-`https://stat-archive.lustats.workers.dev/.well-known/assetlinks.json`
+`.github/workflows/build-apk.yml`:
+
+- reconstructs and verifies the approved splash asset;
+- generates launcher icons from that exact splash;
+- builds the signed release APK and AAB;
+- uploads both as workflow artifacts;
+- on `main` only, publishes the APK to `downloads/stat-archive.apk` for the in-app updater.
+
+Required repository secrets are:
+
+- `KEYSTORE_BASE64`
+- `KEYSTORE_PASSWORD`
+- `KEY_ALIAS`
+- `KEY_PASSWORD`
+
+The publishing commit message derives the version from `app/build.gradle`; it is not hard-coded.
+
+## Website relationship
+
+The Android app loads the deployed Stat Archive website directly from:
+
+`https://stat-archive.lustats.workers.dev/`
+
+The canonical website/PWA source is maintained in the separate `stat-archive` repository. There is no duplicate `website/` payload in this Android repository.
+
+## File and scanner bridge
+
+Website code communicates with Android through the `AndroidBridge` JavaScript interface. `SafeMainActivity` keeps the existing API names for compatibility, restricts bridge calls to the Stat Archive HTTPS origin, and moves large file/scanner I/O away from the Android UI thread.
 
 ## Security
 
-Do not publish or commit `statarchive-release.jks` or `SIGNING_INFO.txt` to a public repository.
+- Keep the release keystore and all signing credentials private.
+- Do not add broad WebView navigation exceptions for untrusted hosts.
+- Keep `AndroidBridge` exposed only while the WebView is on the Stat Archive origin.
+- Release APKs must continue to be signed with the same trusted application signing key so Android can verify updates.
