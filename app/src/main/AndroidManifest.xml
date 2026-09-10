@@ -27,7 +27,7 @@
         </activity>
 
         <activity
-            android:name=".SafeMainActivity"
+            android:name=".VerifiedMainActivity"
             android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false" />
 
