@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - cleanup/refactor-2026-09-10
     paths-ignore:
       - 'downloads/**'
 
@@ -135,13 +136,15 @@ jobs:
         run: |
           mkdir -p downloads
           cp app/build/outputs/apk/release/app-release.apk downloads/stat-archive.apk
+          VERSION_NAME="$(sed -n "s/.*versionName[[:space:]]*['\"]\([^'\"]*\)['\"].*/\1/p" app/build.gradle | head -n1)"
+          test -n "$VERSION_NAME"
           git config user.name "github-actions[bot]"
           git config user.email "4189823+github-actions[bot]@users.noreply.github.com"
           git add downloads/stat-archive.apk
           if git diff --cached --quiet; then
             echo "Published APK is already current."
           else
-            git commit -m "Publish StatArchive APK 1.5.13"
+            git commit -m "Publish StatArchive APK ${VERSION_NAME}"
             git push origin HEAD:main
           fi
 

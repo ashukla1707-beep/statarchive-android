@@ -5,9 +5,7 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 
-# Keep the concrete bridge class name/members stable for WebView reflection.
+# Keep the concrete bridge class stable for WebView reflection. Activity
+# entry points are retained by the Android Gradle/manifest-generated rules;
+# blanket Activity keeps would unnecessarily block R8 optimization.
 -keep class com.statarchive.app.MainActivity$AndroidFileBridge { *; }
-
-# Keep activity entry points referenced from AndroidManifest.xml.
--keep class com.statarchive.app.MainActivity { *; }
--keep class com.statarchive.app.SplashActivity { *; }
