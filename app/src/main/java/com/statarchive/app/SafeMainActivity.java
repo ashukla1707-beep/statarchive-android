@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -14,7 +15,9 @@ import android.util.Base64InputStream;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -45,13 +48,12 @@ import javax.crypto.spec.GCMParameterSpec;
 /**
  * Safety wrapper around the established MainActivity.
  *
- * MainActivity remains unchanged so its WebView, update, file chooser and
- * navigation behavior stay stable. This wrapper fixes two Android-specific
- * problems:
- *  1) hardware Back closes Preview through window.closePreview(), allowing
- *     pdf.js/render/fetch cleanup to run;
- *  2) large bridge file/scanner I/O runs on a worker thread instead of the
- *     Android UI thread.
+ * MainActivity remains the compatibility baseline. This class adds only the
+ * Android-specific protections that are difficult to express in the website:
+ * - Preview is closed through window.closePreview() so pdf.js/fetch cleanup runs;
+ * - large bridge file/scanner work is kept off the Android UI thread;
+ * - bridge calls are enabled only while the top-level WebView is on the trusted
+ *   Stat Archive HTTPS origin.
  */
 public class SafeMainActivity extends MainActivity {
 
@@ -78,6 +80,7 @@ public class SafeMainActivity extends MainActivity {
 
     private OnBackPressedCallback cleanupAwareBackCallback;
     private WebView safeWebView;
+    private volatile boolean trustedTopLevelPage;
     private File pendingScannerCameraFile;
     private File pendingSafeSaveFile;
 
@@ -87,10 +90,13 @@ public class SafeMainActivity extends MainActivity {
 
         safeWebView = findWebView(getWindow().getDecorView());
         if (safeWebView != null) {
-            /* Replace MainActivity's API-compatible bridge with this hardened
-               implementation. Existing website JavaScript does not change. */
+            // WebView URL access is UI-thread-only. Cache trust on this thread
+            // and let JavascriptInterface methods read only the volatile flag.
+            trustedTopLevelPage = isTrustedUrl(safeWebView.getUrl());
+
             safeWebView.removeJavascriptInterface("AndroidBridge");
             safeWebView.addJavascriptInterface(new SafeAndroidBridge(), "AndroidBridge");
+            safeWebView.setWebViewClient(createSafeWebViewClient());
         }
 
         cleanupAwareBackCallback = new OnBackPressedCallback(true) {
@@ -114,8 +120,69 @@ public class SafeMainActivity extends MainActivity {
             }
         };
 
-        /* Added after MainActivity's callback, so this one runs first. */
+        // Added after MainActivity's callback, so this one runs first.
         getOnBackPressedDispatcher().addCallback(this, cleanupAwareBackCallback);
+    }
+
+    private WebViewClient createSafeWebViewClient() {
+        return new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                trustedTopLevelPage = isTrustedUrl(url);
+                super.onPageStarted(view, url, favicon);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (isTrustedUri(uri)) {
+                    return false;
+                }
+
+                // Keep untrusted top-level content outside the WebView. The
+                // currently loaded trusted page remains active, so do not alter
+                // trustedTopLevelPage here unless a navigation actually begins.
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                } catch (Exception ignored) {
+                    // No external handler: still block the untrusted navigation.
+                }
+                return true;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                trustedTopLevelPage = isTrustedUrl(url);
+                super.onPageFinished(view, url);
+                if (trustedTopLevelPage) {
+                    view.evaluateJavascript(
+                            "document.documentElement.classList.add('stat-archive-pwa');",
+                            null
+                    );
+                }
+            }
+        };
+    }
+
+    private boolean isTrustedUrl(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            return isTrustedUri(Uri.parse(url));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isTrustedUri(Uri uri) {
+        if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
+            return false;
+        }
+        String host = uri.getHost();
+        return host != null
+                && (SITE_HOST.equalsIgnoreCase(host)
+                || host.toLowerCase().endsWith("." + SITE_HOST.toLowerCase()));
     }
 
     private void delegateToMainActivityBackHandler() {
@@ -148,22 +215,23 @@ public class SafeMainActivity extends MainActivity {
                 }
             }
         }
-
         return null;
     }
 
     private boolean trustedBridgeCall() {
-        WebView webView = safeWebView;
-        if (webView == null) {
-            return false;
-        }
+        // JavascriptInterface callbacks execute on WebView's bridge thread.
+        // Never call WebView.getUrl() here; only read UI-thread-maintained state.
+        return trustedTopLevelPage && safeWebView != null && !isFinishing() && !isDestroyed();
+    }
 
+    private void runBridgeIo(Runnable task) {
+        if (task == null || bridgeExecutor.isShutdown()) {
+            return;
+        }
         try {
-            Uri uri = Uri.parse(webView.getUrl());
-            return "https".equalsIgnoreCase(uri.getScheme())
-                    && SITE_HOST.equalsIgnoreCase(uri.getHost());
-        } catch (Exception ignored) {
-            return false;
+            bridgeExecutor.execute(task);
+        } catch (RuntimeException ignored) {
+            // Activity teardown can race with a late JavascriptInterface call.
         }
     }
 
@@ -177,7 +245,7 @@ public class SafeMainActivity extends MainActivity {
         return normalizedLevel + "_" + normalizedRole;
     }
 
-    private SecretKey getOrCreateCredentialKey() throws Exception {
+    private synchronized SecretKey getOrCreateCredentialKey() throws Exception {
         KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
         keyStore.load(null);
 
@@ -244,7 +312,6 @@ public class SafeMainActivity extends MainActivity {
         ) {
             copyStream(decoded, output);
         }
-
         return file;
     }
 
@@ -294,13 +361,10 @@ public class SafeMainActivity extends MainActivity {
     }
 
     private void notifyScannerBatchDone() {
-        WebView webView = safeWebView;
-        if (webView == null) {
-            return;
-        }
         runOnUiThread(() -> {
-            if (safeWebView != null) {
-                safeWebView.evaluateJavascript(
+            WebView webView = safeWebView;
+            if (webView != null) {
+                webView.evaluateJavascript(
                         "window.statArchiveScannerNativeBatchDone && " +
                                 "window.statArchiveScannerNativeBatchDone();",
                         null
@@ -316,7 +380,7 @@ public class SafeMainActivity extends MainActivity {
         }
 
         final Uri uri = uris.get(index);
-        bridgeExecutor.execute(() -> {
+        runBridgeIo(() -> {
             try {
                 byte[] bytes = readUriWithLimit(uri);
                 String mime = getContentResolver().getType(uri);
@@ -334,10 +398,11 @@ public class SafeMainActivity extends MainActivity {
                         + JSONObject.quote(filename) + ");";
 
                 runOnUiThread(() -> {
-                    if (safeWebView == null) {
+                    WebView webView = safeWebView;
+                    if (webView == null || !trustedTopLevelPage) {
                         return;
                     }
-                    safeWebView.evaluateJavascript(
+                    webView.evaluateJavascript(
                             js,
                             value -> sendScannerImagesToWeb(uris, index + 1)
                     );
@@ -356,9 +421,7 @@ public class SafeMainActivity extends MainActivity {
     private class SafeAndroidBridge {
         @JavascriptInterface
         public void scannerTakePhoto() {
-            if (!trustedBridgeCall()) {
-                return;
-            }
+            if (!trustedBridgeCall()) return;
 
             runOnUiThread(() -> {
                 try {
@@ -368,9 +431,7 @@ public class SafeMainActivity extends MainActivity {
                     }
 
                     pendingScannerCameraFile = File.createTempFile(
-                            "page_",
-                            ".jpg",
-                            scannerDirectory
+                            "page_", ".jpg", scannerDirectory
                     );
                     Uri outputUri = FileProvider.getUriForFile(
                             SafeMainActivity.this,
@@ -399,9 +460,7 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public void scannerChoosePhotos() {
-            if (!trustedBridgeCall()) {
-                return;
-            }
+            if (!trustedBridgeCall()) return;
 
             runOnUiThread(() -> {
                 try {
@@ -423,29 +482,20 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public String getSavedPasscode(String level, String role) {
-            if (!trustedBridgeCall()) {
-                return "";
-            }
+            if (!trustedBridgeCall()) return "";
 
             String slot = credentialSlot(level, role);
             SharedPreferences prefs = getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE);
             String ivBase64 = prefs.getString(slot + "_iv", null);
             String encryptedBase64 = prefs.getString(slot + "_data", null);
-            if (ivBase64 == null || encryptedBase64 == null) {
-                return "";
-            }
+            if (ivBase64 == null || encryptedBase64 == null) return "";
 
             try {
                 SecretKey key = getOrCreateCredentialKey();
                 Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
                 byte[] iv = Base64.decode(ivBase64, Base64.NO_WRAP);
                 byte[] encrypted = Base64.decode(encryptedBase64, Base64.NO_WRAP);
-
-                cipher.init(
-                        Cipher.DECRYPT_MODE,
-                        key,
-                        new GCMParameterSpec(128, iv)
-                );
+                cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
                 return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
             } catch (Exception error) {
                 prefs.edit()
@@ -458,22 +508,21 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public void savePasscode(String level, String role, String passcode) {
-            if (!trustedBridgeCall() || passcode == null || passcode.isEmpty()) {
-                return;
-            }
+            if (!trustedBridgeCall() || passcode == null || passcode.isEmpty()) return;
 
             try {
                 String slot = credentialSlot(level, role);
                 SecretKey key = getOrCreateCredentialKey();
                 Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
                 cipher.init(Cipher.ENCRYPT_MODE, key);
-
                 byte[] encrypted = cipher.doFinal(passcode.getBytes(StandardCharsets.UTF_8));
-                byte[] iv = cipher.getIV();
 
                 getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE)
                         .edit()
-                        .putString(slot + "_iv", Base64.encodeToString(iv, Base64.NO_WRAP))
+                        .putString(
+                                slot + "_iv",
+                                Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP)
+                        )
                         .putString(
                                 slot + "_data",
                                 Base64.encodeToString(encrypted, Base64.NO_WRAP)
@@ -486,9 +535,7 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public void clearSavedPasscode(String level, String role) {
-            if (!trustedBridgeCall()) {
-                return;
-            }
+            if (!trustedBridgeCall()) return;
 
             String slot = credentialSlot(level, role);
             getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE)
@@ -500,17 +547,13 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public void openFile(String base64Data, String filename, String mimeType) {
-            if (!trustedBridgeCall()) {
-                return;
-            }
+            if (!trustedBridgeCall()) return;
 
-            bridgeExecutor.execute(() -> {
+            runBridgeIo(() -> {
                 try {
                     File file = writeBase64ToSharedFile(base64Data, filename);
                     Uri uri = FileProvider.getUriForFile(
-                            SafeMainActivity.this,
-                            fileProviderAuthority(),
-                            file
+                            SafeMainActivity.this, fileProviderAuthority(), file
                     );
                     Intent intent = new Intent(Intent.ACTION_VIEW);
                     intent.setDataAndType(uri, normalizeMime(mimeType));
@@ -539,17 +582,13 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public void shareFile(String base64Data, String filename, String mimeType) {
-            if (!trustedBridgeCall()) {
-                return;
-            }
+            if (!trustedBridgeCall()) return;
 
-            bridgeExecutor.execute(() -> {
+            runBridgeIo(() -> {
                 try {
                     File file = writeBase64ToSharedFile(base64Data, filename);
                     Uri uri = FileProvider.getUriForFile(
-                            SafeMainActivity.this,
-                            fileProviderAuthority(),
-                            file
+                            SafeMainActivity.this, fileProviderAuthority(), file
                     );
                     Intent intent = new Intent(Intent.ACTION_SEND);
                     intent.setType(normalizeMime(mimeType));
@@ -579,11 +618,9 @@ public class SafeMainActivity extends MainActivity {
 
         @JavascriptInterface
         public void saveFile(String base64Data, String filename, String mimeType) {
-            if (!trustedBridgeCall()) {
-                return;
-            }
+            if (!trustedBridgeCall()) return;
 
-            bridgeExecutor.execute(() -> {
+            runBridgeIo(() -> {
                 try {
                     File file = writeBase64ToSharedFile(base64Data, filename);
                     runOnUiThread(() -> {
@@ -596,6 +633,7 @@ public class SafeMainActivity extends MainActivity {
                             startActivityForResult(intent, SAFE_SAVE_FILE_REQUEST);
                         } catch (Exception error) {
                             pendingSafeSaveFile = null;
+                            file.delete();
                             Toast.makeText(
                                     SafeMainActivity.this,
                                     "Couldn't open the Android file picker.",
@@ -623,9 +661,7 @@ public class SafeMainActivity extends MainActivity {
                     && pendingScannerCameraFile != null
                     && pendingScannerCameraFile.exists()) {
                 uris.add(FileProvider.getUriForFile(
-                        this,
-                        fileProviderAuthority(),
-                        pendingScannerCameraFile
+                        this, fileProviderAuthority(), pendingScannerCameraFile
                 ));
             }
             pendingScannerCameraFile = null;
@@ -640,9 +676,7 @@ public class SafeMainActivity extends MainActivity {
                 if (clipData != null) {
                     for (int i = 0; i < clipData.getItemCount(); i++) {
                         Uri uri = clipData.getItemAt(i).getUri();
-                        if (uri != null) {
-                            uris.add(uri);
-                        }
+                        if (uri != null) uris.add(uri);
                     }
                 } else if (data.getData() != null) {
                     uris.add(data.getData());
@@ -661,11 +695,12 @@ public class SafeMainActivity extends MainActivity {
                     || data.getData() == null
                     || source == null
                     || !source.exists()) {
+                if (source != null) source.delete();
                 return;
             }
 
             Uri destination = data.getData();
-            bridgeExecutor.execute(() -> {
+            runBridgeIo(() -> {
                 try {
                     copyFile(source, destination);
                     runOnUiThread(() -> Toast.makeText(
@@ -679,6 +714,8 @@ public class SafeMainActivity extends MainActivity {
                             "Couldn't save the file.",
                             Toast.LENGTH_LONG
                     ).show());
+                } finally {
+                    source.delete();
                 }
             });
             return;
@@ -689,7 +726,9 @@ public class SafeMainActivity extends MainActivity {
 
     @Override
     protected void onDestroy() {
+        trustedTopLevelPage = false;
         bridgeExecutor.shutdownNow();
+        if (pendingSafeSaveFile != null) pendingSafeSaveFile.delete();
         pendingSafeSaveFile = null;
         pendingScannerCameraFile = null;
         safeWebView = null;
