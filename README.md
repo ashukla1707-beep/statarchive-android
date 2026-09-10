@@ -14,7 +14,7 @@ The current app is a native Android **WebView** wrapper. It is not a Trusted Web
 - Android Gradle Plugin: 8.9.1
 - Gradle used by CI: 8.11.1
 
-`SplashActivity` launches `SafeMainActivity`, which extends the established `MainActivity` and adds Android-specific safety fixes while retaining the existing WebView behavior.
+`SplashActivity` launches `VerifiedMainActivity`. That class extends `SafeMainActivity`, which in turn extends the established `MainActivity`. The two thin wrappers add Android-specific safety fixes while retaining the existing WebView behavior.
 
 ## Build locally
 
@@ -60,6 +60,16 @@ The canonical website/PWA source is maintained in the separate `stat-archive` re
 ## File and scanner bridge
 
 Website code communicates with Android through the `AndroidBridge` JavaScript interface. `SafeMainActivity` keeps the existing API names for compatibility, restricts bridge calls to the Stat Archive HTTPS origin, and moves large file/scanner I/O away from the Android UI thread.
+
+## Update verification
+
+`VerifiedMainActivity` performs a final check before Android's package installer is opened. A downloaded update is accepted only when:
+
+- it parses as an Android package;
+- its package name is `com.statarchive.app`; and
+- every current signer on the candidate APK matches a signer trusted by the installed app (including signing-certificate history where supported).
+
+This is intentionally a last-mile check in addition to Android's own signature enforcement.
 
 ## Security
 
