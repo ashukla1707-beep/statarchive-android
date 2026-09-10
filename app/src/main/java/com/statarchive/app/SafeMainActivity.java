@@ -4,9 +4,10 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -15,9 +16,7 @@ import android.util.Base64InputStream;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -48,12 +47,12 @@ import javax.crypto.spec.GCMParameterSpec;
 /**
  * Safety wrapper around the established MainActivity.
  *
- * MainActivity remains the compatibility baseline. This class adds only the
- * Android-specific protections that are difficult to express in the website:
- * - Preview is closed through window.closePreview() so pdf.js/fetch cleanup runs;
- * - large bridge file/scanner work is kept off the Android UI thread;
- * - bridge calls are enabled only while the top-level WebView is on the trusted
- *   Stat Archive HTTPS origin.
+ * MainActivity remains the compatibility baseline and keeps ownership of its
+ * WebViewClient/WebChromeClient. This class adds only Android-specific safety:
+ * - Preview closes through window.closePreview() so pdf.js/fetch cleanup runs;
+ * - large bridge file/scanner work runs off the Android UI thread;
+ * - bridge calls are accepted only while the top-level WebView is on the
+ *   trusted Stat Archive HTTPS origin.
  */
 public class SafeMainActivity extends MainActivity {
 
@@ -65,6 +64,7 @@ public class SafeMainActivity extends MainActivity {
     private static final String CREDENTIAL_PREFS = "stat_archive_secure_credentials";
     private static final String CREDENTIAL_KEY_ALIAS = "stat_archive_passcode_key_v1";
     private static final long MAX_NATIVE_SCANNER_IMAGE_BYTES = 32L * 1024L * 1024L;
+    private static final long TRUST_POLL_MS = 200L;
 
     private static final String CLOSE_PREVIEW_IF_OPEN_JS =
             "(function(){try{" +
@@ -80,9 +80,29 @@ public class SafeMainActivity extends MainActivity {
 
     private OnBackPressedCallback cleanupAwareBackCallback;
     private WebView safeWebView;
+    private Handler trustHandler;
     private volatile boolean trustedTopLevelPage;
     private File pendingScannerCameraFile;
     private File pendingSafeSaveFile;
+
+    private final Runnable trustMonitor = new Runnable() {
+        @Override
+        public void run() {
+            WebView webView = safeWebView;
+            if (webView == null || isFinishing() || isDestroyed()) {
+                trustedTopLevelPage = false;
+                return;
+            }
+
+            // This Runnable always executes on the main looper, so WebView.getUrl()
+            // is accessed on the UI thread. JavascriptInterface callbacks read
+            // only the volatile result and never touch WebView APIs themselves.
+            trustedTopLevelPage = isTrustedUrl(webView.getUrl());
+            if (trustHandler != null) {
+                trustHandler.postDelayed(this, TRUST_POLL_MS);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,13 +110,14 @@ public class SafeMainActivity extends MainActivity {
 
         safeWebView = findWebView(getWindow().getDecorView());
         if (safeWebView != null) {
-            // WebView URL access is UI-thread-only. Cache trust on this thread
-            // and let JavascriptInterface methods read only the volatile flag.
-            trustedTopLevelPage = isTrustedUrl(safeWebView.getUrl());
-
             safeWebView.removeJavascriptInterface("AndroidBridge");
             safeWebView.addJavascriptInterface(new SafeAndroidBridge(), "AndroidBridge");
-            safeWebView.setWebViewClient(createSafeWebViewClient());
+
+            // Do not install another WebViewClient here. MainActivity's client
+            // owns external-link routing and PWA-class setup. Replacing it was
+            // a compile-safe but runtime-breaking regression.
+            trustHandler = new Handler(Looper.getMainLooper());
+            trustHandler.post(trustMonitor);
         }
 
         cleanupAwareBackCallback = new OnBackPressedCallback(true) {
@@ -122,46 +143,6 @@ public class SafeMainActivity extends MainActivity {
 
         // Added after MainActivity's callback, so this one runs first.
         getOnBackPressedDispatcher().addCallback(this, cleanupAwareBackCallback);
-    }
-
-    private WebViewClient createSafeWebViewClient() {
-        return new WebViewClient() {
-            @Override
-            public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                trustedTopLevelPage = isTrustedUrl(url);
-                super.onPageStarted(view, url, favicon);
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if (isTrustedUri(uri)) {
-                    return false;
-                }
-
-                // Keep untrusted top-level content outside the WebView. The
-                // currently loaded trusted page remains active, so do not alter
-                // trustedTopLevelPage here unless a navigation actually begins.
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                } catch (Exception ignored) {
-                    // No external handler: still block the untrusted navigation.
-                }
-                return true;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                trustedTopLevelPage = isTrustedUrl(url);
-                super.onPageFinished(view, url);
-                if (trustedTopLevelPage) {
-                    view.evaluateJavascript(
-                            "document.documentElement.classList.add('stat-archive-pwa');",
-                            null
-                    );
-                }
-            }
-        };
     }
 
     private boolean isTrustedUrl(String url) {
@@ -219,9 +200,7 @@ public class SafeMainActivity extends MainActivity {
     }
 
     private boolean trustedBridgeCall() {
-        // JavascriptInterface callbacks execute on WebView's bridge thread.
-        // Never call WebView.getUrl() here; only read UI-thread-maintained state.
-        return trustedTopLevelPage && safeWebView != null && !isFinishing() && !isDestroyed();
+        return trustedTopLevelPage;
     }
 
     private void runBridgeIo(Runnable task) {
@@ -363,7 +342,7 @@ public class SafeMainActivity extends MainActivity {
     private void notifyScannerBatchDone() {
         runOnUiThread(() -> {
             WebView webView = safeWebView;
-            if (webView != null) {
+            if (webView != null && trustedTopLevelPage) {
                 webView.evaluateJavascript(
                         "window.statArchiveScannerNativeBatchDone && " +
                                 "window.statArchiveScannerNativeBatchDone();",
@@ -727,6 +706,10 @@ public class SafeMainActivity extends MainActivity {
     @Override
     protected void onDestroy() {
         trustedTopLevelPage = false;
+        if (trustHandler != null) {
+            trustHandler.removeCallbacks(trustMonitor);
+            trustHandler = null;
+        }
         bridgeExecutor.shutdownNow();
         if (pendingSafeSaveFile != null) pendingSafeSaveFile.delete();
         pendingSafeSaveFile = null;
