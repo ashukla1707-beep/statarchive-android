@@ -1,0 +1,53 @@
+name: Add native Drive download bridge
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch SafeMainActivity
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/statarchive/app/SafeMainActivity.java')
+          s = p.read_text()
+
+          if 'import android.app.DownloadManager;' not in s:
+              s = s.replace('package com.statarchive.app;\n\n', 'package com.statarchive.app;\n\nimport android.app.DownloadManager;\n')
+          if 'import android.os.Environment;' not in s:
+              s = s.replace('import android.os.Bundle;\n', 'import android.os.Bundle;\nimport android.os.Environment;\n')
+
+          old = '''    private String normalizeMime(String mimeType) {\n        return mimeType == null || mimeType.trim().isEmpty()\n                ? "application/octet-stream"\n                : mimeType.trim();\n    }\n'''
+          new = '''    private String normalizeMime(String mimeType) {\n        return mimeType == null || mimeType.trim().isEmpty()\n                ? "application/octet-stream"\n                : mimeType.trim();\n    }\n\n    private String normalizeMimeForFilename(String mimeType, String filename) {\n        String mime = normalizeMime(mimeType);\n        String name = filename == null ? "" : filename.trim().toLowerCase();\n        if ((mime.equalsIgnoreCase("application/octet-stream")\n                || mime.equalsIgnoreCase("binary/octet-stream"))\n                && name.endsWith(".pdf")) {\n            return "application/pdf";\n        }\n        return mime;\n    }\n'''
+          if 'normalizeMimeForFilename' not in s:
+              if old not in s:
+                  raise SystemExit('normalizeMime block not found')
+              s = s.replace(old, new)
+
+          marker = '''        @JavascriptInterface\n        public void saveFile(String base64Data, String filename, String mimeType) {\n'''
+          method = '''        @JavascriptInterface\n        public void downloadUrl(String url, String filename, String mimeType) {\n            if (!trustedBridgeCall()) return;\n\n            runOnUiThread(() -> {\n                try {\n                    Uri uri = Uri.parse(url == null ? "" : url.trim());\n                    if (!"https".equalsIgnoreCase(uri.getScheme())\n                            || uri.getHost() == null\n                            || !(SITE_HOST.equalsIgnoreCase(uri.getHost())\n                            || uri.getHost().toLowerCase().endsWith("." + SITE_HOST.toLowerCase()))) {\n                        throw new IOException("Untrusted download address.");\n                    }\n\n                    String safeName = sanitizeFilename(filename);\n                    String safeMime = normalizeMimeForFilename(mimeType, safeName);\n                    DownloadManager.Request request = new DownloadManager.Request(uri);\n                    request.setTitle(safeName);\n                    request.setDescription("Downloading from Stat Archive");\n                    request.setMimeType(safeMime);\n                    request.setAllowedOverMetered(true);\n                    request.setAllowedOverRoaming(true);\n                    request.setNotificationVisibility(\n                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED\n                    );\n                    request.setDestinationInExternalPublicDir(\n                            Environment.DIRECTORY_DOWNLOADS,\n                            safeName\n                    );\n\n                    DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);\n                    if (manager == null) throw new IOException("Download service unavailable.");\n                    manager.enqueue(request);\n                    Toast.makeText(\n                            SafeMainActivity.this,\n                            "Download started.",\n                            Toast.LENGTH_SHORT\n                    ).show();\n                } catch (Exception error) {\n                    Toast.makeText(\n                            SafeMainActivity.this,\n                            "Couldn't start the download.",\n                            Toast.LENGTH_LONG\n                    ).show();\n                }\n            });\n        }\n\n'''
+          if 'public void downloadUrl(' not in s:
+              if marker not in s:
+                  raise SystemExit('saveFile marker not found')
+              s = s.replace(marker, method + marker)
+
+          p.write_text(s)
+          PY
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/statarchive/app/SafeMainActivity.java
+          git commit -m "Add native Drive download bridge"
+          git push
