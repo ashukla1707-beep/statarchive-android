@@ -1,0 +1,33 @@
+name: Offline PDF app chooser
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/offline-open-chooser.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Always show Android app chooser for offline PDF open
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/statarchive/app/SafeMainActivity.java')
+          s = p.read_text()
+          old = '''                    runOnUiThread(() -> {\n                        try {\n                            startActivity(intent);\n                        } catch (ActivityNotFoundException error) {\n                            Toast.makeText(\n                                    SafeMainActivity.this,\n                                    "No app is available to open this file.",\n                                    Toast.LENGTH_LONG\n                            ).show();\n                        }\n                    });'''
+          new = '''                    runOnUiThread(() -> {\n                        try {\n                            startActivity(Intent.createChooser(intent, "Open PDF with"));\n                        } catch (ActivityNotFoundException error) {\n                            Toast.makeText(\n                                    SafeMainActivity.this,\n                                    "No app is available to open this file.",\n                                    Toast.LENGTH_LONG\n                            ).show();\n                        }\n                    });'''
+          if old not in s:
+              raise SystemExit('openFile target block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "4189823+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/statarchive/app/SafeMainActivity.java
+          git commit -m "Show app chooser for offline PDF open" || exit 0
+          git push
