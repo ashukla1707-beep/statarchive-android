@@ -553,7 +553,7 @@ public class SafeMainActivity extends MainActivity {
 
                     runOnUiThread(() -> {
                         try {
-                            startActivity(intent);
+                            startActivity(Intent.createChooser(intent, "Open PDF with"));
                         } catch (ActivityNotFoundException error) {
                             Toast.makeText(
                                     SafeMainActivity.this,
