@@ -59,7 +59,7 @@ public class SplashActivity extends AppCompatActivity {
         setContentView(root);
 
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            startActivity(new Intent(SplashActivity.this, VerifiedMainActivity.class));
+            startActivity(new Intent(SplashActivity.this, LaunchMainActivity.class));
             overridePendingTransition(0, 0);
             finish();
         }, SPLASH_DELAY_MS);
