@@ -1,11 +1,13 @@
 package com.statarchive.app;
 
+import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
@@ -269,6 +271,17 @@ public class SafeMainActivity extends MainActivity {
         return mimeType == null || mimeType.trim().isEmpty()
                 ? "application/octet-stream"
                 : mimeType.trim();
+    }
+
+    private String normalizeMimeForFilename(String mimeType, String filename) {
+        String mime = normalizeMime(mimeType);
+        String name = filename == null ? "" : filename.trim().toLowerCase();
+        if ((mime.equalsIgnoreCase("application/octet-stream")
+                || mime.equalsIgnoreCase("binary/octet-stream"))
+                && name.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        return mime;
     }
 
     private File writeBase64ToSharedFile(String base64Data, String filename) throws IOException {
@@ -591,6 +604,54 @@ public class SafeMainActivity extends MainActivity {
                             "Couldn't share the file.",
                             Toast.LENGTH_LONG
                     ).show());
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void downloadUrl(String url, String filename, String mimeType) {
+            if (!trustedBridgeCall()) return;
+
+            runOnUiThread(() -> {
+                try {
+                    Uri uri = Uri.parse(url == null ? "" : url.trim());
+                    if (!"https".equalsIgnoreCase(uri.getScheme())
+                            || uri.getHost() == null
+                            || !(SITE_HOST.equalsIgnoreCase(uri.getHost())
+                            || uri.getHost().toLowerCase().endsWith("." + SITE_HOST.toLowerCase()))) {
+                        throw new IOException("Untrusted download address.");
+                    }
+
+                    String safeName = sanitizeFilename(filename);
+                    String safeMime = normalizeMimeForFilename(mimeType, safeName);
+                    DownloadManager.Request request = new DownloadManager.Request(uri);
+                    request.setTitle(safeName);
+                    request.setDescription("Downloading from Stat Archive");
+                    request.setMimeType(safeMime);
+                    request.setAllowedOverMetered(true);
+                    request.setAllowedOverRoaming(true);
+                    request.setNotificationVisibility(
+                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                    );
+                    request.setDestinationInExternalPublicDir(
+                            Environment.DIRECTORY_DOWNLOADS,
+                            safeName
+                    );
+
+                    DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    if (manager == null) throw new IOException("Download service unavailable.");
+                    manager.enqueue(request);
+                    Toast.makeText(
+                            SafeMainActivity.this,
+                            "Download started.",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                } catch (Exception error) {
+                    Toast.makeText(
+                            SafeMainActivity.this,
+                            "Couldn't start the download.",
+                            Toast.LENGTH_LONG
+                    ).show();
                 }
             });
         }
