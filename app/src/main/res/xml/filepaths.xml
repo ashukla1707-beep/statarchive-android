@@ -7,6 +7,11 @@
         name="shared_files"
         path="shared/" />
 
+    <!-- Chunk-streamed files avoid one large Base64 allocation -->
+    <cache-path
+        name="streamed_files"
+        path="streamed-files/" />
+
     <!-- Temporary scanner camera photos -->
     <cache-path
         name="scanner_files"
