@@ -35,12 +35,15 @@
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowBackground">@color/background_color</item>
 
-        <!-- Hide the small Android 12 icon splash; SplashActivity immediately
-             paints the full-screen Stat Archive artwork instead. -->
-        <item name="android:windowSplashScreenBackground">@color/background_color</item>
+        <!-- Android 12+ always owns the first launch frame. Keep that frame
+             completely blank/black so it cannot show the launcher icon inside
+             the system splash mask. SplashActivity then paints splash_exact
+             full-screen as the only visible Stat Archive artwork. -->
+        <item name="android:windowSplashScreenBackground">@android:color/black</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@color/background_color</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
         <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowDisablePreview">true</item>
 
         <item name="android:statusBarColor">@color/background_color</item>
         <item name="android:navigationBarColor">@color/background_color</item>
