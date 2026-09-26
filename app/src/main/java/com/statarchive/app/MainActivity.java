@@ -208,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
                 AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                         .setTitle("Stat Archive")
                         .setMessage(message)
-                        .setPositiveButton("Yes", (d, which) -> result.confirm())
+                        .setPositiveButton("Delete", (d, which) -> result.confirm())
                         .setNegativeButton("Cancel", (d, which) -> result.cancel())
                         .setOnCancelListener(d -> result.cancel())
                         .create();
