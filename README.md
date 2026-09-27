@@ -14,13 +14,13 @@ The current app is a native Android **WebView** wrapper. It is not a Trusted Web
 - Android Gradle Plugin: 8.9.1
 - Gradle used by CI: 8.11.1
 
-`SplashActivity` launches `VerifiedMainActivity`. That class extends `SafeMainActivity`, which in turn extends the established `MainActivity`. The two thin wrappers add Android-specific safety fixes while retaining the existing WebView behavior.
+`LaunchReadyActivity` is the launcher and extends `VerifiedMainActivity`, preserving the ready-aware splash and frame-zero hero handoff. That class extends `SafeMainActivity`, which in turn extends the established `MainActivity`. The two thin wrappers add Android-specific safety fixes while retaining the existing WebView behavior.
 
 ## Build locally
 
 1. Install Android Studio with Android SDK 36 and Java 17.
 2. Open this repository as the Android project.
-3. Let Gradle sync and download dependencies.
+3. Let Gradle sync and download dependencies. The `generateApprovedSplash` pre-build task reconstructs and SHA-256-verifies the approved splash automatically; no CI-only setup is needed.
 4. For a release build, provide the signing values expected by `app/build.gradle`:
    - `KEYSTORE_FILE`
    - `KEYSTORE_PASSWORD`
@@ -59,7 +59,9 @@ The canonical website/PWA source is maintained in the separate `stat-archive` re
 
 ## File and scanner bridge
 
-Website code communicates with Android through the `AndroidBridge` JavaScript interface. `SafeMainActivity` keeps the existing API names for compatibility, restricts bridge calls to the Stat Archive HTTPS origin, and moves large file/scanner I/O away from the Android UI thread.
+Website code uses the asynchronous `StatArchiveNative` WebMessageListener transport. Only the exact Stat Archive HTTPS origin, port 443, and main frame are accepted. No addJavascriptInterface bridge is exposed. Update the website native-bridge.js adapter before releasing this APK. Unsupported WebView versions receive no native bridge; update Android System WebView to enable native features.
+
+Saved passcodes are no longer exposed to page JavaScript. Use Android autofill or enter the passcode. File-save promises resolve only after Android confirms the destination was written and closed; cancellation rejects without counting a download.
 
 ## Update verification
 
@@ -75,5 +77,6 @@ This is intentionally a last-mile check in addition to Android's own signature e
 
 - Keep the release keystore and all signing credentials private.
 - Do not add broad WebView navigation exceptions for untrusted hosts.
-- Keep `AndroidBridge` exposed only while the WebView is on the Stat Archive origin.
+- Keep native messaging restricted to the exact Stat Archive origin and the main frame.
 - Release APKs must continue to be signed with the same trusted application signing key so Android can verify updates.
+

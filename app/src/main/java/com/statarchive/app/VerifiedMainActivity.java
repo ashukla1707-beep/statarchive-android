@@ -10,11 +10,11 @@ import android.os.Bundle;
 import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
+import org.json.JSONArray;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -60,7 +60,7 @@ public class VerifiedMainActivity extends SafeMainActivity {
         super.onCreate(savedInstanceState);
         verifiedWebView = findWebView(getWindow().getDecorView());
         if (verifiedWebView != null) {
-            verifiedWebView.addJavascriptInterface(new AndroidStreamBridge(), "AndroidStreamBridge");
+            verifiedWebView.removeJavascriptInterface("AndroidStreamBridge");
         }
     }
 
@@ -77,16 +77,41 @@ public class VerifiedMainActivity extends SafeMainActivity {
     }
 
     private boolean isTrustedSiteUrl(String value) {
-        if (value == null || value.trim().isEmpty()) return false;
-        try {
-            Uri uri = Uri.parse(value.trim());
-            String host = uri.getHost();
-            return "https".equalsIgnoreCase(uri.getScheme())
-                    && host != null
-                    && (SITE_HOST.equalsIgnoreCase(host)
-                    || host.toLowerCase(Locale.ROOT).endsWith("." + SITE_HOST));
-        } catch (Exception ignored) {
-            return false;
+        return BridgeOrigin.isTrusted(value);
+    }
+
+    private NativeReply pendingSaveReply;
+    private long activeTransferBytes;
+    private static final long MAX_TRANSFER_BYTES = 512L * 1024L * 1024L;
+
+    private void completeSave(boolean saved, String error) {
+        NativeReply reply;
+        synchronized (transferLock) { reply = pendingSaveReply; pendingSaveReply = null; }
+        if (reply != null) reply.complete(saved, error);
+    }
+
+    @Override
+    protected void handleNativeCall(String method, JSONArray args, NativeReply reply) throws Exception {
+        AndroidStreamBridge bridge = new AndroidStreamBridge();
+        switch (method) {
+            case "beginBlobTransfer":
+                reply.complete(bridge.beginBlobTransfer(args.getString(0), args.getString(1), args.getString(2)), null); return;
+            case "appendBlobChunk":
+                reply.complete(bridge.appendBlobChunk(args.getString(0)), null); return;
+            case "cancelBlobTransfer": resetActiveTransfer(true); reply.complete(true, null); return;
+            case "finishBlobTransfer":
+                boolean save;
+                synchronized (transferLock) {
+                    save = "save".equals(activeTransferAction);
+                    if (save) pendingSaveReply = reply;
+                }
+                boolean accepted = bridge.finishBlobTransfer();
+                if (save) {
+                    if (!accepted) completeSave(false, "Android transfer could not finish.");
+                    // Successful save replies only after the picker result and closed output stream.
+                } else reply.complete(accepted, null);
+                return;
+            default: super.handleNativeCall(method, args, reply);
         }
     }
 
@@ -122,6 +147,7 @@ public class VerifiedMainActivity extends SafeMainActivity {
                 try { activeTransferOutput.close(); } catch (Exception ignored) {}
             }
             activeTransferOutput = null;
+            activeTransferBytes = 0;
             if (deleteFile && activeTransferFile != null) {
                 try { activeTransferFile.delete(); } catch (Exception ignored) {}
             }
@@ -184,6 +210,7 @@ public class VerifiedMainActivity extends SafeMainActivity {
             startActivityForResult(intent, STREAM_BLOB_SAVE_REQUEST);
         } catch (Exception error) {
             pendingBlobSaveFile = null;
+            completeSave(false, "Could not open the Android file picker.");
             try { file.delete(); } catch (Exception ignored) {}
             Toast.makeText(this, "Couldn't open the Android file picker.", Toast.LENGTH_LONG).show();
         }
@@ -227,9 +254,8 @@ public class VerifiedMainActivity extends SafeMainActivity {
     }
 
     private class AndroidStreamBridge {
-        @JavascriptInterface
         public boolean saveUrl(String url, String filename, String mimeType) {
-            if (!isTrustedSiteUrl(url)) return false;
+            if (!trustedBridgeCall() || !isTrustedSiteUrl(url)) return false;
             final String name = safeFilename(filename);
             final String mime = safeMime(mimeType, name);
             runOnUiThread(() -> {
@@ -256,8 +282,8 @@ public class VerifiedMainActivity extends SafeMainActivity {
             return true;
         }
 
-        @JavascriptInterface
         public boolean beginBlobTransfer(String filename, String mimeType, String action) {
+            if (!trustedBridgeCall()) return false;
             String normalizedAction = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
             if (!(normalizedAction.equals("open")
                     || normalizedAction.equals("share")
@@ -265,6 +291,7 @@ public class VerifiedMainActivity extends SafeMainActivity {
                 return false;
             }
             synchronized (transferLock) {
+                if (activeTransferOutput != null || pendingSaveReply != null || pendingBlobSaveFile != null) return false;
                 resetActiveTransfer(true);
                 try {
                     activeTransferName = safeFilename(filename);
@@ -280,14 +307,15 @@ public class VerifiedMainActivity extends SafeMainActivity {
             }
         }
 
-        @JavascriptInterface
         public boolean appendBlobChunk(String base64Chunk) {
-            if (base64Chunk == null || base64Chunk.isEmpty()) return false;
+            if (!trustedBridgeCall() || base64Chunk == null || base64Chunk.isEmpty() || base64Chunk.length() > 1024 * 1024) return false;
             synchronized (transferLock) {
                 if (activeTransferOutput == null || activeTransferFile == null) return false;
                 try {
                     byte[] decoded = Base64.decode(base64Chunk, Base64.DEFAULT);
+                    if (activeTransferBytes + decoded.length > MAX_TRANSFER_BYTES) throw new IOException("File exceeds transfer limit.");
                     activeTransferOutput.write(decoded);
+                    activeTransferBytes += decoded.length;
                     return true;
                 } catch (Exception error) {
                     resetActiveTransfer(true);
@@ -296,8 +324,8 @@ public class VerifiedMainActivity extends SafeMainActivity {
             }
         }
 
-        @JavascriptInterface
         public boolean finishBlobTransfer() {
+            if (!trustedBridgeCall()) return false;
             final File file;
             final String filename;
             final String mime;
@@ -358,30 +386,23 @@ public class VerifiedMainActivity extends SafeMainActivity {
                     || source == null
                     || !source.exists()) {
                 if (source != null) source.delete();
+                completeSave(false, resultCode != RESULT_OK ? "Save cancelled." : "Saved file is unavailable.");
                 return;
             }
             Uri destination = data.getData();
             streamExecutor.execute(() -> {
-                try (
-                        InputStream input = new FileInputStream(source);
-                        OutputStream output = getContentResolver().openOutputStream(destination)
-                ) {
-                    if (output == null) throw new IOException("Could not open destination.");
-                    copy(input, output);
-                    runOnUiThread(() -> Toast.makeText(
-                            this,
-                            "File saved successfully.",
-                            Toast.LENGTH_SHORT
-                    ).show());
+                try {
+                    try (InputStream input = new FileInputStream(source);
+                         OutputStream output = getContentResolver().openOutputStream(destination)) {
+                        if (output == null) throw new IOException("Could not open destination.");
+                        copy(input, output);
+                    }
+                    completeSave(true, null);
+                    runOnUiThread(() -> Toast.makeText(this, "File saved successfully.", Toast.LENGTH_SHORT).show());
                 } catch (Exception error) {
-                    runOnUiThread(() -> Toast.makeText(
-                            this,
-                            "Couldn't save the file.",
-                            Toast.LENGTH_LONG
-                    ).show());
-                } finally {
-                    source.delete();
-                }
+                    completeSave(false, "Could not save the file.");
+                    runOnUiThread(() -> Toast.makeText(this, "Couldn't save the file.", Toast.LENGTH_LONG).show());
+                } finally { source.delete(); }
             });
             return;
         }
@@ -392,6 +413,8 @@ public class VerifiedMainActivity extends SafeMainActivity {
     @Override
     protected void onDestroy() {
         resetActiveTransfer(true);
+        completeSave(false, "Activity closed before saving completed.");
+        if (pendingBlobSaveFile != null) pendingBlobSaveFile.delete();
         streamExecutor.shutdownNow();
         super.onDestroy();
     }
@@ -492,3 +515,4 @@ public class VerifiedMainActivity extends SafeMainActivity {
         return info.signatures == null ? new Signature[0] : info.signatures;
     }
 }
+

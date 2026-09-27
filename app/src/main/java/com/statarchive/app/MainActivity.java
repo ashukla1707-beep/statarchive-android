@@ -15,7 +15,6 @@ import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.view.View;
-import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -125,7 +124,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         configureWebView();
-        webView.addJavascriptInterface(new AndroidFileBridge(), "AndroidBridge");
+        installNativeBridge(webView);
         webView.setWebViewClient(createWebViewClient());
         webView.setWebChromeClient(createWebChromeClient());
         configureBackNavigation();
@@ -134,10 +133,15 @@ public class MainActivity extends AppCompatActivity {
         checkForAppUpdate();
     }
 
+    protected void installNativeBridge(WebView view) { /* No unscoped JavaScript interfaces. */ }
+
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
         settings.setTextZoom(100);
@@ -153,10 +157,11 @@ public class MainActivity extends AppCompatActivity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
-                if (host != null && (host.equals(SITE_HOST) || host.endsWith("." + SITE_HOST))) {
+                if (BridgeOrigin.isTrusted(uri.toString())) {
                     return false;
                 }
 
+                if (!request.isForMainFrame()) return true;
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception ignored) {
@@ -570,7 +575,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private class AndroidFileBridge {
-        @JavascriptInterface
         public void scannerTakePhoto() {
             runOnUiThread(() -> {
                 try {
@@ -609,7 +613,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public void scannerChoosePhotos() {
             runOnUiThread(() -> {
                 try {
@@ -629,7 +632,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public String getSavedPasscode(String level, String role) {
             String slot = credentialSlot(level, role);
             SharedPreferences prefs = getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE);
@@ -660,7 +662,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @JavascriptInterface
         public void savePasscode(String level, String role, String passcode) {
             if (passcode == null || passcode.isEmpty()) {
                 return;
@@ -688,7 +689,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @JavascriptInterface
         public void clearSavedPasscode(String level, String role) {
             String slot = credentialSlot(level, role);
             getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE)
@@ -698,7 +698,6 @@ public class MainActivity extends AppCompatActivity {
                     .apply();
         }
 
-        @JavascriptInterface
         public void openFile(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
                 try {
@@ -732,7 +731,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public void shareFile(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
                 try {
@@ -758,7 +756,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public void saveFile(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
                 try {
@@ -958,3 +955,4 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 }
+
