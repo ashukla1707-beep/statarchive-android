@@ -10,8 +10,8 @@ android {
         applicationId 'com.statarchive.app'
         minSdk 24
         targetSdk 36
-        versionCode 28
-        versionName '1.5.21'
+        versionCode 29
+        versionName '1.5.22'
     }
 
     signingConfigs {
@@ -37,4 +37,37 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.activity:activity:1.10.1'
     implementation 'androidx.core:core:1.15.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+    testImplementation 'junit:junit:4.13.2'
 }
+
+
+// Reconstruct the approved asset for every clean checkout, before resource merging.
+def generatedSplash = layout.buildDirectory.dir("generated/statArchiveSplash")
+android.sourceSets.main.res.srcDir(generatedSplash)
+def splashParts = [
+    '.splash_exact_png/part01.b64', '.splash_exact_png/part02.b64',
+    '.splash_exact_png/part03.b64', '.splash_exact_png/part04.b64',
+    '.splash_exact_png/part05.b64', '.splash_exact_png/part06.b64',
+    '.splash_exact_png/part07.b64', '.splash_exact_webp/part08a.b64',
+    '.splash_exact_webp/part08b1a.b64', '.splash_exact_webp/part08b1b1.b64',
+    '.splash_exact_webp/part08b1b2a.b64', '.splash_exact_webp/part08b1b2b1.b64',
+    '.splash_exact_webp/part08b1b2b2.b64', '.splash_exact_webp/part08b2.b64',
+    '.splash_exact_webp/part08c.b64', '.splash_exact_webp/part08d.b64',
+    '.splash_exact_png/part09.b64'
+].collect { rootProject.file(it) }
+tasks.register('generateApprovedSplash') {
+    inputs.files(splashParts)
+    outputs.dir(generatedSplash)
+    doLast {
+        byte[] bytes = Base64.mimeDecoder.decode(splashParts.collect { it.text }.join(''))
+        String sha = java.security.MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
+        if (sha != 'a0c152dadc7e9e95a932627c75f7d011ed04b3899b6c30d3e9fbb0d57a7e6018') {
+            throw new GradleException('Approved splash checksum mismatch')
+        }
+        File target = new File(generatedSplash.get().asFile, 'drawable-nodpi/splash_exact.webp')
+        target.parentFile.mkdirs()
+        target.bytes = bytes
+    }
+}
+tasks.named('preBuild').configure { dependsOn('generateApprovedSplash') }
