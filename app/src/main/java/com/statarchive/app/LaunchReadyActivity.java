@@ -23,10 +23,10 @@ import androidx.core.splashscreen.SplashScreen;
  * data-stat-startup-ready="1", so users never see the empty WebView/black gap or
  * the home counters populating after launch.
  *
- * The website hero animation may already have started while hidden behind the
- * native splash. On reveal we replace only the hero SVG with a fresh clone and
- * reload the existing hero-animation script. The old animation keeps running on
- * the detached SVG while the user sees a new animation from frame one.
+ * The website hero may already animate while hidden. Before revealing the page,
+ * Android swaps in a fresh hero SVG frozen at frame zero. Only after the splash
+ * has completely disappeared is the existing hero-animation script reloaded, so
+ * the user sees the graph animation from its true first frame with no reset flash.
  */
 public class LaunchReadyActivity extends VerifiedMainActivity {
 
@@ -34,7 +34,7 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
     private static final long MIN_SPLASH_VISIBLE_MS = 700L;
     private static final long FAILSAFE_MS = 10_000L;
 
-    private static final String REPLAY_HERO_JS =
+    private static final String PREPARE_HERO_JS =
             "(function(){try{" +
             "var hero=document.querySelector('.hero-probability');" +
             "var oldSvg=hero&&hero.querySelector('.probability-svg');" +
@@ -42,9 +42,12 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
             "var fresh=oldSvg.cloneNode(true);" +
             "var curve=fresh.querySelector('.gaussian-curve');" +
             "if(curve){" +
-            "curve.style.setProperty('opacity','0','important');" +
+            "var len=1000;try{var measured=curve.getTotalLength();if(isFinite(measured)&&measured>1)len=measured;}catch(_e){}" +
             "curve.style.setProperty('animation','none','important');" +
             "curve.style.setProperty('transition','none','important');" +
+            "curve.style.setProperty('stroke-dasharray',len+' '+len,'important');" +
+            "curve.style.setProperty('stroke-dashoffset',String(len),'important');" +
+            "curve.style.setProperty('opacity','1','important');" +
             "}" +
             "fresh.querySelectorAll('.data-dot').forEach(function(dot){" +
             "dot.style.setProperty('opacity','0','important');" +
@@ -56,9 +59,17 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
             "window.__STAT_ARCHIVE_HERO_ANIMATION_V3__=false;" +
             "var guard=document.getElementById('statHeroDotPreStartGuard');" +
             "if(guard)guard.remove();" +
+            "return true;" +
+            "}catch(e){return false;}})();";
+
+    private static final String START_HERO_JS =
+            "(function(){try{" +
+            "var old=document.querySelector('script[data-native-hero-replay]');" +
+            "if(old)old.remove();" +
             "var script=document.createElement('script');" +
             "script.src='assets/js/hero-animation.js?native-replay='+Date.now();" +
             "script.async=false;" +
+            "script.dataset.nativeHeroReplay='1';" +
             "document.body.appendChild(script);" +
             "return true;" +
             "}catch(e){return false;}})();";
@@ -79,7 +90,7 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
 
             long elapsed = SystemClock.uptimeMillis() - createdAtMs;
             if (elapsed >= FAILSAFE_MS) {
-                dismissLaunchOverlay();
+                beginRevealSequence();
                 return;
             }
 
@@ -102,11 +113,11 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
                             long remaining = MIN_SPLASH_VISIBLE_MS - nowElapsed;
                             if (remaining > 0L) {
                                 launchHandler.postDelayed(
-                                        LaunchReadyActivity.this::dismissLaunchOverlay,
+                                        LaunchReadyActivity.this::beginRevealSequence,
                                         remaining
                                 );
                             } else {
-                                dismissLaunchOverlay();
+                                beginRevealSequence();
                             }
                         } else {
                             scheduleNextPoll();
@@ -118,10 +129,7 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Must happen before super.onCreate() so Android 12+ uses the official
-        // deterministic black system splash instead of the launcher icon.
         SplashScreen.installSplashScreen(this);
-
         super.onCreate(savedInstanceState);
 
         createdAtMs = SystemClock.uptimeMillis();
@@ -173,25 +181,42 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
         launchHandler.postDelayed(readyPoll, READY_POLL_MS);
     }
 
-    private void dismissLaunchOverlay() {
+    private void beginRevealSequence() {
         if (launchOverlayDismissed) {
             return;
         }
         launchOverlayDismissed = true;
         launchHandler.removeCallbacksAndMessages(null);
 
-        // Restore the normal Stat Archive system bars while the splash still
-        // covers the WebView. This lets the page settle its final insets before
-        // it becomes visible, avoiding a layout jump after reveal.
         restoreNormalSystemBars();
 
-        ImageView overlay = launchOverlay;
-        if (overlay == null) {
-            replayHeroAnimation();
+        WebView webView = launchWebView;
+        if (webView == null) {
+            webView = findWebView(getWindow().getDecorView());
+            launchWebView = webView;
+        }
+
+        if (webView == null) {
+            fadeSplashThenStartHero();
             return;
         }
 
-        overlay.postDelayed(() -> overlay.animate()
+        // Freeze the visible hero at frame zero while it is still fully covered.
+        // Reveal only after the DOM replacement callback confirms completion.
+        webView.evaluateJavascript(PREPARE_HERO_JS, ignored -> {
+            View decor = getWindow().getDecorView();
+            decor.postOnAnimation(this::fadeSplashThenStartHero);
+        });
+    }
+
+    private void fadeSplashThenStartHero() {
+        ImageView overlay = launchOverlay;
+        if (overlay == null) {
+            startHeroAnimation();
+            return;
+        }
+
+        overlay.animate()
                 .alpha(0f)
                 .setDuration(120L)
                 .withEndAction(() -> {
@@ -201,23 +226,21 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
                     }
                     launchOverlay = null;
 
-                    // Start the visible hero only after the splash is completely
-                    // gone. postOnAnimation keeps the first graph frame aligned
-                    // with the next display frame instead of the fade's last one.
-                    View decor = getWindow().getDecorView();
-                    decor.postOnAnimation(this::replayHeroAnimation);
+                    // The page is now visible with the graph frozen at frame zero.
+                    // Start the animation on the next display frame.
+                    getWindow().getDecorView().postOnAnimation(this::startHeroAnimation);
                 })
-                .start(), 60L);
+                .start();
     }
 
-    private void replayHeroAnimation() {
+    private void startHeroAnimation() {
         WebView webView = launchWebView;
         if (webView == null) {
             webView = findWebView(getWindow().getDecorView());
             launchWebView = webView;
         }
         if (webView != null) {
-            webView.evaluateJavascript(REPLAY_HERO_JS, null);
+            webView.evaluateJavascript(START_HERO_JS, null);
         }
     }
 
