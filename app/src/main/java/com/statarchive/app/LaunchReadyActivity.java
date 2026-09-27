@@ -22,12 +22,46 @@ import androidx.core.splashscreen.SplashScreen;
  * loads underneath it. The overlay is removed only after the website publishes
  * data-stat-startup-ready="1", so users never see the empty WebView/black gap or
  * the home counters populating after launch.
+ *
+ * The website hero animation may already have started while hidden behind the
+ * native splash. On reveal we replace only the hero SVG with a fresh clone and
+ * reload the existing hero-animation script. The old animation keeps running on
+ * the detached SVG while the user sees a new animation from frame one.
  */
 public class LaunchReadyActivity extends VerifiedMainActivity {
 
     private static final long READY_POLL_MS = 80L;
     private static final long MIN_SPLASH_VISIBLE_MS = 700L;
     private static final long FAILSAFE_MS = 10_000L;
+
+    private static final String REPLAY_HERO_JS =
+            "(function(){try{" +
+            "var hero=document.querySelector('.hero-probability');" +
+            "var oldSvg=hero&&hero.querySelector('.probability-svg');" +
+            "if(!hero||!oldSvg)return false;" +
+            "var fresh=oldSvg.cloneNode(true);" +
+            "var curve=fresh.querySelector('.gaussian-curve');" +
+            "if(curve){" +
+            "curve.style.setProperty('opacity','0','important');" +
+            "curve.style.setProperty('animation','none','important');" +
+            "curve.style.setProperty('transition','none','important');" +
+            "}" +
+            "fresh.querySelectorAll('.data-dot').forEach(function(dot){" +
+            "dot.style.setProperty('opacity','0','important');" +
+            "dot.style.setProperty('animation','none','important');" +
+            "dot.style.setProperty('transition','none','important');" +
+            "dot.style.setProperty('transform','translateY(0px)','important');" +
+            "});" +
+            "oldSvg.replaceWith(fresh);" +
+            "window.__STAT_ARCHIVE_HERO_ANIMATION_V3__=false;" +
+            "var guard=document.getElementById('statHeroDotPreStartGuard');" +
+            "if(guard)guard.remove();" +
+            "var script=document.createElement('script');" +
+            "script.src='assets/js/hero-animation.js?native-replay='+Date.now();" +
+            "script.async=false;" +
+            "document.body.appendChild(script);" +
+            "return true;" +
+            "}catch(e){return false;}})();";
 
     private final Handler launchHandler = new Handler(Looper.getMainLooper());
 
@@ -153,6 +187,7 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
 
         ImageView overlay = launchOverlay;
         if (overlay == null) {
+            replayHeroAnimation();
             return;
         }
 
@@ -165,8 +200,25 @@ public class LaunchReadyActivity extends VerifiedMainActivity {
                         parent.removeView(overlay);
                     }
                     launchOverlay = null;
+
+                    // Start the visible hero only after the splash is completely
+                    // gone. postOnAnimation keeps the first graph frame aligned
+                    // with the next display frame instead of the fade's last one.
+                    View decor = getWindow().getDecorView();
+                    decor.postOnAnimation(this::replayHeroAnimation);
                 })
                 .start(), 60L);
+    }
+
+    private void replayHeroAnimation() {
+        WebView webView = launchWebView;
+        if (webView == null) {
+            webView = findWebView(getWindow().getDecorView());
+            launchWebView = webView;
+        }
+        if (webView != null) {
+            webView.evaluateJavascript(REPLAY_HERO_JS, null);
+        }
     }
 
     private void restoreNormalSystemBars() {
