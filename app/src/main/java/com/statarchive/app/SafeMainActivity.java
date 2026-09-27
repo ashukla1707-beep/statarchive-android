@@ -39,6 +39,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -290,7 +291,7 @@ public class SafeMainActivity extends MainActivity {
 
     private String normalizeMimeForFilename(String mimeType, String filename) {
         String mime = normalizeMime(mimeType);
-        String name = filename == null ? "" : filename.trim().toLowerCase();
+        String name = filename == null ? "" : filename.trim().toLowerCase(Locale.ROOT);
         if ((mime.equalsIgnoreCase("application/octet-stream")
                 || mime.equalsIgnoreCase("binary/octet-stream"))
                 && name.endsWith(".pdf")) {
@@ -622,10 +623,7 @@ public class SafeMainActivity extends MainActivity {
             runOnUiThread(() -> {
                 try {
                     Uri uri = Uri.parse(url == null ? "" : url.trim());
-                    if (!"https".equalsIgnoreCase(uri.getScheme())
-                            || uri.getHost() == null
-                            || !(SITE_HOST.equalsIgnoreCase(uri.getHost())
-                            || uri.getHost().toLowerCase().endsWith("." + SITE_HOST.toLowerCase()))) {
+                    if (!BridgeOrigin.isTrusted(uri.toString())) {
                         throw new IOException("Untrusted download address.");
                     }
 
