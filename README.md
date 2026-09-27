@@ -14,7 +14,7 @@ The current app is a native Android **WebView** wrapper. It is not a Trusted Web
 - Android Gradle Plugin: 8.9.1
 - Gradle used by CI: 8.11.1
 
-`SplashActivity` launches `VerifiedMainActivity`. That class extends `SafeMainActivity`, which in turn extends the established `MainActivity`. The two thin wrappers add Android-specific safety fixes while retaining the existing WebView behavior.
+`LaunchReadyActivity` is the launcher and extends `VerifiedMainActivity`, preserving the ready-aware splash and frame-zero hero handoff. That class extends `SafeMainActivity`, which in turn extends the established `MainActivity`. The two thin wrappers add Android-specific safety fixes while retaining the existing WebView behavior.
 
 ## Build locally
 

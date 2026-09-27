@@ -7,7 +7,7 @@ Addresses findings 2, 7 and 9 from the audit; coordinated website changes are re
 - Stream transfers are bounded, reject overlapping active transfers, and report save completion only after a successful write and output close. Picker cancellation, startup failure, write failure, and activity destruction reject pending saves.
 - Native scanner callbacks verify the current trusted URL before injecting results.
 - Gradle reconstructs and SHA-256-verifies the approved splash before resource processing. Launcher icons were regenerated from the approved asset. Clean local builds no longer depend on CI-only splash reconstruction.
-- Prepares versionCode 29 / versionName 1.5.22; no release APK is committed or published by this branch.
+- Prepares versionCode 33 / versionName 1.5.26; no release APK is committed or published by this branch.
 
 ## Validation
 
