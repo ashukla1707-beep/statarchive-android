@@ -15,7 +15,8 @@
         android:theme="@style/Theme.StatArchive">
 
         <activity
-            android:name=".SplashActivity"
+            android:name=".LaunchReadyActivity"
+            android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.StatArchive.Splash">
@@ -26,6 +27,12 @@
             </intent-filter>
 
         </activity>
+
+        <activity
+            android:name=".SplashActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.StatArchive.Splash" />
 
         <activity
             android:name=".VerifiedMainActivity"
