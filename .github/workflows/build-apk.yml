@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - cleanup/refactor-2026-09-10
+      - fix/cold-start-splash
     paths-ignore:
       - 'downloads/**'
 
