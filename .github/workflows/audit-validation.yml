@@ -17,8 +17,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Install Android build dependencies
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 
       - run: gradle testDebugUnitTest lintDebug assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
