@@ -13,6 +13,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.splashscreen.SplashScreen;
 
 public class SplashActivity extends AppCompatActivity {
 
@@ -20,6 +21,11 @@ public class SplashActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Install the official compatibility splash before super.onCreate().
+        // This makes Android's cold-start frame deterministic on Android 12+
+        // and prevents OEM launchers from falling back to the app icon.
+        SplashScreen.installSplashScreen(this);
+
         super.onCreate(savedInstanceState);
 
         Window window = getWindow();
