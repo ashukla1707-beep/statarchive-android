@@ -119,7 +119,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          gradle assembleRelease bundleRelease --stacktrace
+          rm -f app/src/main/res/drawable-nodpi/splash_exact.webp
+          gradle testDebugUnitTest lintDebug assembleRelease bundleRelease --stacktrace
 
       - name: Upload StatArchive APK
         uses: actions/upload-artifact@v4
@@ -172,3 +173,4 @@ jobs:
       - name: Delete temporary keystore
         if: always()
         run: rm -f "$GITHUB_WORKSPACE/statarchive-release.jks"
+

@@ -8,8 +8,6 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.MediaStore;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -17,12 +15,15 @@ import android.util.Base64;
 import android.util.Base64InputStream;
 import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.content.FileProvider;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import java.util.Collections;
+import org.json.JSONArray;
 
 import org.json.JSONObject;
 
@@ -38,6 +39,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -53,8 +55,7 @@ import javax.crypto.spec.GCMParameterSpec;
  * WebViewClient/WebChromeClient. This class adds only Android-specific safety:
  * - Preview closes through window.closePreview() so pdf.js/fetch cleanup runs;
  * - large bridge file/scanner work runs off the Android UI thread;
- * - bridge calls are accepted only while the top-level WebView is on the
- *   trusted Stat Archive HTTPS origin.
+ * - bridge calls use origin-scoped WebMessageListener and reject child frames.
  */
 public class SafeMainActivity extends MainActivity {
 
@@ -66,7 +67,6 @@ public class SafeMainActivity extends MainActivity {
     private static final String CREDENTIAL_PREFS = "stat_archive_secure_credentials";
     private static final String CREDENTIAL_KEY_ALIAS = "stat_archive_passcode_key_v1";
     private static final long MAX_NATIVE_SCANNER_IMAGE_BYTES = 32L * 1024L * 1024L;
-    private static final long TRUST_POLL_MS = 200L;
 
     private static final String CLOSE_PREVIEW_IF_OPEN_JS =
             "(function(){try{" +
@@ -82,45 +82,67 @@ public class SafeMainActivity extends MainActivity {
 
     private OnBackPressedCallback cleanupAwareBackCallback;
     private WebView safeWebView;
-    private Handler trustHandler;
-    private volatile boolean trustedTopLevelPage;
     private File pendingScannerCameraFile;
     private File pendingSafeSaveFile;
 
-    private final Runnable trustMonitor = new Runnable() {
-        @Override
-        public void run() {
-            WebView webView = safeWebView;
-            if (webView == null || isFinishing() || isDestroyed()) {
-                trustedTopLevelPage = false;
-                return;
-            }
+    private final ThreadLocal<Boolean> authenticatedNativeCall = new ThreadLocal<>();
 
-            // This Runnable always executes on the main looper, so WebView.getUrl()
-            // is accessed on the UI thread. JavascriptInterface callbacks read
-            // only the volatile result and never touch WebView APIs themselves.
-            trustedTopLevelPage = isTrustedUrl(webView.getUrl());
-            if (trustHandler != null) {
-                trustHandler.postDelayed(this, TRUST_POLL_MS);
-            }
+    protected interface NativeReply { void complete(Object value, String error); }
+
+    @Override
+    protected void installNativeBridge(WebView view) {
+        safeWebView = view;
+        // Fail closed on outdated WebView implementations: no legacy bridge fallback.
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
+        WebViewCompat.addWebMessageListener(view, "StatArchiveNative",
+                Collections.singleton("https://stat-archive.lustats.workers.dev"),
+                (webView, message, sourceOrigin, isMainFrame, replyProxy) -> {
+            if (!isMainFrame || !BridgeOrigin.isTrusted(sourceOrigin.toString())
+                    || !BridgeOrigin.isTrusted(webView.getUrl())) return;
+            try {
+                String data = message.getData();
+                if (data == null || data.length() > 48 * 1024 * 1024) return;
+                JSONObject request = new JSONObject(data);
+                String id = request.getString("id");
+                String method = request.getString("method");
+                JSONArray args = request.optJSONArray("args");
+                if (id.length() > 100 || args == null) return;
+                NativeReply reply = (value, error) -> runOnUiThread(() -> {
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("id", id);
+                        result.put("value", value == null ? JSONObject.NULL : value);
+                        if (error != null) result.put("error", error);
+                        replyProxy.postMessage(result.toString());
+                    } catch (Exception ignored) { }
+                });
+                runBridgeIo(() -> {
+                    authenticatedNativeCall.set(true);
+                    try { handleNativeCall(method, args, reply); }
+                    catch (Exception error) { reply.complete(null, "Native operation failed."); }
+                    finally { authenticatedNativeCall.remove(); }
+                });
+            } catch (Exception ignored) { /* Invalid messages have no privileges. */ }
+        });
+    }
+
+    protected void handleNativeCall(String method, JSONArray args, NativeReply reply) throws Exception {
+        SafeAndroidBridge bridge = new SafeAndroidBridge();
+        switch (method) {
+            case "scannerTakePhoto": bridge.scannerTakePhoto(); break;
+            case "scannerChoosePhotos": bridge.scannerChoosePhotos(); break;
+            case "openFile": bridge.openFile(args.getString(0), args.getString(1), args.getString(2)); break;
+            case "shareFile": bridge.shareFile(args.getString(0), args.getString(1), args.getString(2)); break;
+            default: reply.complete(null, "Unsupported native operation."); return;
         }
-    };
+        reply.complete(true, null);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         safeWebView = findWebView(getWindow().getDecorView());
-        if (safeWebView != null) {
-            safeWebView.removeJavascriptInterface("AndroidBridge");
-            safeWebView.addJavascriptInterface(new SafeAndroidBridge(), "AndroidBridge");
-
-            // Do not install another WebViewClient here. MainActivity's client
-            // owns external-link routing and PWA-class setup. Replacing it was
-            // a compile-safe but runtime-breaking regression.
-            trustHandler = new Handler(Looper.getMainLooper());
-            trustHandler.post(trustMonitor);
-        }
 
         cleanupAwareBackCallback = new OnBackPressedCallback(true) {
             @Override
@@ -159,13 +181,7 @@ public class SafeMainActivity extends MainActivity {
     }
 
     private boolean isTrustedUri(Uri uri) {
-        if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
-            return false;
-        }
-        String host = uri.getHost();
-        return host != null
-                && (SITE_HOST.equalsIgnoreCase(host)
-                || host.toLowerCase().endsWith("." + SITE_HOST.toLowerCase()));
+        return uri != null && BridgeOrigin.isTrusted(uri.toString());
     }
 
     private void delegateToMainActivityBackHandler() {
@@ -201,8 +217,8 @@ public class SafeMainActivity extends MainActivity {
         return null;
     }
 
-    private boolean trustedBridgeCall() {
-        return trustedTopLevelPage;
+    protected boolean trustedBridgeCall() {
+        return Boolean.TRUE.equals(authenticatedNativeCall.get());
     }
 
     private void runBridgeIo(Runnable task) {
@@ -275,7 +291,7 @@ public class SafeMainActivity extends MainActivity {
 
     private String normalizeMimeForFilename(String mimeType, String filename) {
         String mime = normalizeMime(mimeType);
-        String name = filename == null ? "" : filename.trim().toLowerCase();
+        String name = filename == null ? "" : filename.trim().toLowerCase(Locale.ROOT);
         if ((mime.equalsIgnoreCase("application/octet-stream")
                 || mime.equalsIgnoreCase("binary/octet-stream"))
                 && name.endsWith(".pdf")) {
@@ -355,7 +371,7 @@ public class SafeMainActivity extends MainActivity {
     private void notifyScannerBatchDone() {
         runOnUiThread(() -> {
             WebView webView = safeWebView;
-            if (webView != null && trustedTopLevelPage) {
+            if (webView != null && BridgeOrigin.isTrusted(webView.getUrl())) {
                 webView.evaluateJavascript(
                         "window.statArchiveScannerNativeBatchDone && " +
                                 "window.statArchiveScannerNativeBatchDone();",
@@ -391,7 +407,7 @@ public class SafeMainActivity extends MainActivity {
 
                 runOnUiThread(() -> {
                     WebView webView = safeWebView;
-                    if (webView == null || !trustedTopLevelPage) {
+                    if (webView == null || !BridgeOrigin.isTrusted(webView.getUrl())) {
                         return;
                     }
                     webView.evaluateJavascript(
@@ -411,7 +427,6 @@ public class SafeMainActivity extends MainActivity {
     }
 
     private class SafeAndroidBridge {
-        @JavascriptInterface
         public void scannerTakePhoto() {
             if (!trustedBridgeCall()) return;
 
@@ -450,7 +465,6 @@ public class SafeMainActivity extends MainActivity {
             });
         }
 
-        @JavascriptInterface
         public void scannerChoosePhotos() {
             if (!trustedBridgeCall()) return;
 
@@ -472,7 +486,6 @@ public class SafeMainActivity extends MainActivity {
             });
         }
 
-        @JavascriptInterface
         public String getSavedPasscode(String level, String role) {
             if (!trustedBridgeCall()) return "";
 
@@ -498,7 +511,6 @@ public class SafeMainActivity extends MainActivity {
             }
         }
 
-        @JavascriptInterface
         public void savePasscode(String level, String role, String passcode) {
             if (!trustedBridgeCall() || passcode == null || passcode.isEmpty()) return;
 
@@ -525,7 +537,6 @@ public class SafeMainActivity extends MainActivity {
             }
         }
 
-        @JavascriptInterface
         public void clearSavedPasscode(String level, String role) {
             if (!trustedBridgeCall()) return;
 
@@ -537,7 +548,6 @@ public class SafeMainActivity extends MainActivity {
                     .apply();
         }
 
-        @JavascriptInterface
         public void openFile(String base64Data, String filename, String mimeType) {
             if (!trustedBridgeCall()) return;
 
@@ -572,7 +582,6 @@ public class SafeMainActivity extends MainActivity {
             });
         }
 
-        @JavascriptInterface
         public void shareFile(String base64Data, String filename, String mimeType) {
             if (!trustedBridgeCall()) return;
 
@@ -608,17 +617,13 @@ public class SafeMainActivity extends MainActivity {
             });
         }
 
-        @JavascriptInterface
         public void downloadUrl(String url, String filename, String mimeType) {
             if (!trustedBridgeCall()) return;
 
             runOnUiThread(() -> {
                 try {
                     Uri uri = Uri.parse(url == null ? "" : url.trim());
-                    if (!"https".equalsIgnoreCase(uri.getScheme())
-                            || uri.getHost() == null
-                            || !(SITE_HOST.equalsIgnoreCase(uri.getHost())
-                            || uri.getHost().toLowerCase().endsWith("." + SITE_HOST.toLowerCase()))) {
+                    if (!BridgeOrigin.isTrusted(uri.toString())) {
                         throw new IOException("Untrusted download address.");
                     }
 
@@ -656,7 +661,6 @@ public class SafeMainActivity extends MainActivity {
             });
         }
 
-        @JavascriptInterface
         public void saveFile(String base64Data, String filename, String mimeType) {
             if (!trustedBridgeCall()) return;
 
@@ -766,11 +770,7 @@ public class SafeMainActivity extends MainActivity {
 
     @Override
     protected void onDestroy() {
-        trustedTopLevelPage = false;
-        if (trustHandler != null) {
-            trustHandler.removeCallbacks(trustMonitor);
-            trustHandler = null;
-        }
+
         bridgeExecutor.shutdownNow();
         if (pendingSafeSaveFile != null) pendingSafeSaveFile.delete();
         pendingSafeSaveFile = null;
@@ -779,3 +779,4 @@ public class SafeMainActivity extends MainActivity {
         super.onDestroy();
     }
 }
+

@@ -13,11 +13,19 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.splashscreen.SplashScreen;
 
 public class SplashActivity extends AppCompatActivity {
 
     private static final long SPLASH_DELAY_MS = 900L;
+    private final Handler launchHandler = new Handler(Looper.getMainLooper());
+    private final Runnable launchArchive = () -> {
+        if (isFinishing() || isDestroyed()) return;
+        startActivity(new Intent(SplashActivity.this, VerifiedMainActivity.class));
+        overridePendingTransition(0, 0);
+        finish();
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,15 +72,17 @@ public class SplashActivity extends AppCompatActivity {
 
         setContentView(root);
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            startActivity(new Intent(SplashActivity.this, VerifiedMainActivity.class));
-            overridePendingTransition(0, 0);
-            finish();
-        }, SPLASH_DELAY_MS);
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                // Ignore Back during the short launch transition.
+            }
+        });
+        launchHandler.postDelayed(launchArchive, SPLASH_DELAY_MS);
     }
 
     @Override
-    public void onBackPressed() {
-        // Ignore Back while the launch splash is visible.
+    protected void onDestroy() {
+        launchHandler.removeCallbacks(launchArchive);
+        super.onDestroy();
     }
 }

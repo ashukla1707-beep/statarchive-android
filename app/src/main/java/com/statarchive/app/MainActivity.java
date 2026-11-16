@@ -15,7 +15,6 @@ import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.view.View;
-import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -65,7 +64,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String SITE_HOST = "stat-archive.lustats.workers.dev";
     private static final String SITE_URL = "https://" + SITE_HOST + "/";
-    private static final String UPDATE_INFO_URL = SITE_URL + "version.json";
 
     private static final String CREDENTIAL_PREFS = "stat_archive_secure_credentials";
     private static final String CREDENTIAL_KEY_ALIAS = "stat_archive_passcode_key_v1";
@@ -95,8 +93,7 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private File pendingScannerCameraFile;
-    private boolean updateDialogShown;
-    private File pendingUpdateApk;
+
     private String pendingSaveBase64;
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
@@ -125,19 +122,23 @@ public class MainActivity extends AppCompatActivity {
         });
 
         configureWebView();
-        webView.addJavascriptInterface(new AndroidFileBridge(), "AndroidBridge");
+        installNativeBridge(webView);
         webView.setWebViewClient(createWebViewClient());
         webView.setWebChromeClient(createWebChromeClient());
         configureBackNavigation();
 
         webView.loadUrl(SITE_URL);
-        checkForAppUpdate();
-    }
+}
+
+    protected void installNativeBridge(WebView view) { /* No unscoped JavaScript interfaces. */ }
 
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(false);
         settings.setTextZoom(100);
@@ -153,10 +154,11 @@ public class MainActivity extends AppCompatActivity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
-                if (host != null && (host.equals(SITE_HOST) || host.endsWith("." + SITE_HOST))) {
+                if (BridgeOrigin.isTrusted(uri.toString())) {
                     return false;
                 }
 
+                if (!request.isForMainFrame()) return true;
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception ignored) {
@@ -243,49 +245,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-
-    private void checkForAppUpdate() {
-        new Thread(() -> {
-            HttpURLConnection connection = null;
-            try {
-                connection = (HttpURLConnection) new URL(UPDATE_INFO_URL).openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(8000);
-                connection.setReadTimeout(8000);
-                connection.setUseCaches(false);
-                connection.setRequestProperty("Cache-Control", "no-cache");
-
-                int responseCode = connection.getResponseCode();
-                if (responseCode < 200 || responseCode >= 300) {
-                    return;
-                }
-
-                JSONObject json = new JSONObject(readText(connection.getInputStream()));
-                long latestVersionCode = json.optLong("versionCode", 0);
-                String latestVersionName = json.optString("versionName", "");
-                String apkUrl = json.optString("apkUrl", "");
-                String message = json.optString(
-                        "message",
-                        "A new version of Stat Archive is available."
-                );
-
-                if (latestVersionCode > getInstalledVersionCode() && !apkUrl.trim().isEmpty()) {
-                    runOnUiThread(() -> showUpdateDialog(
-                            latestVersionName,
-                            message,
-                            apkUrl
-                    ));
-                }
-            } catch (Exception ignored) {
-                // Update checking must never prevent normal app usage.
-            } finally {
-                if (connection != null) {
-                    connection.disconnect();
-                }
-            }
-        }).start();
-    }
-
     @SuppressWarnings("deprecation")
     private long getInstalledVersionCode() throws Exception {
         android.content.pm.PackageInfo info = getPackageManager()
@@ -294,205 +253,6 @@ public class MainActivity extends AppCompatActivity {
                 ? info.getLongVersionCode()
                 : info.versionCode;
     }
-
-    private void showUpdateDialog(String versionName, String message, String apkUrl) {
-        if (isFinishing() || isDestroyed() || updateDialogShown) {
-            return;
-        }
-        updateDialogShown = true;
-
-        String cleanMessage = message == null ? "" : message.trim();
-        StringBuilder text = new StringBuilder(
-                cleanMessage.isEmpty()
-                        ? "A new version of Stat Archive is available."
-                        : cleanMessage
-        );
-        if (versionName != null && !versionName.trim().isEmpty()) {
-            text.append("\n\nNew version: ").append(versionName.trim());
-        }
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Update available")
-                .setMessage(text.toString())
-                .setPositiveButton("Update", (d, which) -> downloadAppUpdate(apkUrl))
-                .setNegativeButton("Later", (d, which) -> {
-                })
-                .setOnDismissListener(d -> updateDialogShown = false)
-                .create();
-
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setAllCaps(false);
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setAllCaps(false);
-    }
-
-    private void downloadAppUpdate(String apkUrl) {
-        if (apkUrl == null || apkUrl.trim().isEmpty()) {
-            Toast.makeText(this, "Update download address is missing.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        if (!apkUrl.regionMatches(true, 0, "https://", 0, 8)) {
-            Toast.makeText(this, "Invalid update download address.", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        Toast.makeText(this, "Downloading update…", Toast.LENGTH_SHORT).show();
-
-        new Thread(() -> {
-            HttpURLConnection connection = null;
-            File temporaryFile = null;
-
-            try {
-                connection = (HttpURLConnection) new URL(apkUrl).openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(15000);
-                connection.setReadTimeout(30000);
-                connection.setInstanceFollowRedirects(true);
-                connection.setUseCaches(false);
-                connection.setRequestProperty("Cache-Control", "no-cache");
-
-                int responseCode = connection.getResponseCode();
-                if (responseCode < 200 || responseCode >= 300) {
-                    throw new IOException("APK download failed.");
-                }
-
-                File updatesDirectory = new File(getCacheDir(), "updates");
-                if (!updatesDirectory.exists() && !updatesDirectory.mkdirs()) {
-                    throw new IOException("Couldn't create update directory.");
-                }
-
-                temporaryFile = new File(updatesDirectory, "stat-archive-update.download");
-                File finalApk = new File(updatesDirectory, "stat-archive-update.apk");
-
-                if (temporaryFile.exists()) {
-                    temporaryFile.delete();
-                }
-                if (finalApk.exists()) {
-                    finalApk.delete();
-                }
-
-                try (
-                        InputStream input = new BufferedInputStream(connection.getInputStream());
-                        FileOutputStream output = new FileOutputStream(temporaryFile)
-                ) {
-                    copyStream(input, output);
-                }
-
-                if (temporaryFile.length() < 50_000) {
-                    throw new IOException("Downloaded update is invalid.");
-                }
-
-                if (!temporaryFile.renameTo(finalApk)) {
-                    copyFile(temporaryFile, finalApk);
-                    temporaryFile.delete();
-                }
-
-                runOnUiThread(() -> beginUpdateInstallation(finalApk));
-            } catch (Exception e) {
-                if (temporaryFile != null && temporaryFile.exists()) {
-                    temporaryFile.delete();
-                }
-                runOnUiThread(() -> Toast.makeText(
-                        MainActivity.this,
-                        "Couldn't download the update.",
-                        Toast.LENGTH_LONG
-                ).show());
-            } finally {
-                if (connection != null) {
-                    connection.disconnect();
-                }
-            }
-        }).start();
-    }
-
-    private void beginUpdateInstallation(File apkFile) {
-        if (apkFile == null || !apkFile.exists()) {
-            pendingUpdateApk = null;
-            Toast.makeText(this, "Update file could not be found.", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                && !getPackageManager().canRequestPackageInstalls()) {
-            pendingUpdateApk = apkFile;
-
-            new AlertDialog.Builder(this)
-                    .setTitle("Allow app updates")
-                    .setMessage(
-                            "Android needs permission for Stat Archive to install its downloaded " +
-                            "update. Enable \"Allow from this source\", then return to Stat Archive."
-                    )
-                    .setPositiveButton("Open settings", (d, which) -> {
-                        try {
-                            Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
-                            intent.setData(Uri.parse("package:" + getPackageName()));
-                            startActivity(intent);
-                        } catch (Exception e) {
-                            pendingUpdateApk = null;
-                            Toast.makeText(
-                                    MainActivity.this,
-                                    "Couldn't open installation settings.",
-                                    Toast.LENGTH_LONG
-                            ).show();
-                        }
-                    })
-                    .setNegativeButton("Cancel", (d, which) -> pendingUpdateApk = null)
-                    .setOnCancelListener(d -> pendingUpdateApk = null)
-                    .show();
-            return;
-        }
-
-        pendingUpdateApk = null;
-        installDownloadedApk(apkFile);
-    }
-
-    private void installDownloadedApk(File apkFile) {
-        if (apkFile == null || !apkFile.exists()) {
-            pendingUpdateApk = null;
-            Toast.makeText(this, "Update file could not be found.", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        try {
-            Uri apkUri = FileProvider.getUriForFile(
-                    this,
-                    fileProviderAuthority(),
-                    apkFile
-            );
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(intent);
-        } catch (Exception e) {
-            pendingUpdateApk = null;
-            Toast.makeText(
-                    this,
-                    "Couldn't start the Android update installer.",
-                    Toast.LENGTH_LONG
-            ).show();
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        if (pendingUpdateApk == null) {
-            return;
-        }
-        if (!pendingUpdateApk.exists()) {
-            pendingUpdateApk = null;
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                && !getPackageManager().canRequestPackageInstalls()) {
-            return;
-        }
-
-        File apk = pendingUpdateApk;
-        pendingUpdateApk = null;
-        installDownloadedApk(apk);
-    }
-
     private String readText(InputStream inputStream) throws IOException {
         StringBuilder builder = new StringBuilder();
         try (
@@ -570,7 +330,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private class AndroidFileBridge {
-        @JavascriptInterface
         public void scannerTakePhoto() {
             runOnUiThread(() -> {
                 try {
@@ -609,7 +368,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public void scannerChoosePhotos() {
             runOnUiThread(() -> {
                 try {
@@ -629,7 +387,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public String getSavedPasscode(String level, String role) {
             String slot = credentialSlot(level, role);
             SharedPreferences prefs = getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE);
@@ -660,7 +417,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @JavascriptInterface
         public void savePasscode(String level, String role, String passcode) {
             if (passcode == null || passcode.isEmpty()) {
                 return;
@@ -688,7 +444,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @JavascriptInterface
         public void clearSavedPasscode(String level, String role) {
             String slot = credentialSlot(level, role);
             getSharedPreferences(CREDENTIAL_PREFS, MODE_PRIVATE)
@@ -698,7 +453,6 @@ public class MainActivity extends AppCompatActivity {
                     .apply();
         }
 
-        @JavascriptInterface
         public void openFile(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
                 try {
@@ -732,7 +486,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public void shareFile(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
                 try {
@@ -758,7 +511,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @JavascriptInterface
         public void saveFile(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
                 try {
@@ -958,3 +710,4 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 }
+
